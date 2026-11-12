@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>轨迹对比 · GPX 路线实验室</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body>
+<header class="site-header"><a class="brand" href="/" aria-label="GPX 路线实验室首页"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 28V13l10-6 12 8-11 9-1-17M7 28l11-4 11 5V15"/></svg><span>GPX <strong>路线实验室</strong></span></a><nav aria-label="主导航"><a href="/" aria-current="page">轨迹对比</a><a href="/about">项目说明</a></nav><div class="header-right"><span class="local-tag">仅在本机处理</span><button id="theme-toggle" class="quiet" type="button" aria-label="切换深色模式">深色</button></div></header>
+<main class="workspace">
+<aside class="source-panel">
+<div class="section-heading"><h1>选择一条路线</h1><span class="version">V0.1</span></div><p class="muted intro">从本地文件夹读取 GPX，查看去重前后的变化。</p>
+<form id="folder-form"><label for="folder">GPX 文件夹</label><textarea id="folder" rows="3" spellcheck="false" placeholder="输入本机文件夹完整路径" required></textarea><div class="folder-actions"><label class="check"><input id="recursive" type="checkbox"> 包含子文件夹</label><button id="scan" type="submit" class="button small">读取文件夹</button></div></form>
+<div class="shortcuts"><button id="use-example" type="button">使用示例</button><button id="use-default" type="button">使用你的目录</button></div>
+<div class="list-heading"><h2>轨迹文件 <span id="file-count">0</span></h2><label class="sr-only" for="filter">搜索文件名</label><input type="search" id="filter" placeholder="搜索文件名…"></div>
+<div id="files" class="file-list" role="group" aria-label="GPX 文件列表"><p class="list-empty">正在读取文件夹…</p></div>
+<div class="run-options"><label for="radius">匹配半径 <span>米</span></label><div class="radius-row"><input id="radius" type="number" value="18" min="1" max="100" step="1"><p>默认 18 米。过大可能把平行道路误判为重合。</p></div><button id="run" type="button" class="button run-button" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>运行去重</span></button><p class="muted fine">只读原文件，结果另存。一次处理一个文件。</p></div>
+</aside>
+<section class="comparison-area" aria-label="轨迹处理结果">
+<div class="result-heading"><div><p class="muted overline">轨迹工作台</p><h2 id="route-title">让路线的变化清晰可见</h2><p id="route-subtitle" class="muted">选择左侧文件，再点击「运行去重」。</p></div><span id="result-badge" class="badge">等待运行</span></div>
+<div id="status" class="status" role="status" aria-live="polite">正在连接本地服务…</div>
+<div id="summary" class="summary" hidden><div><span>原始长度</span><strong id="original-length">—</strong></div><div><span>处理后长度</span><strong id="clean-length">—</strong></div><div><span>减少的行程</span><strong id="removed-length">—</strong></div><div><span>轨迹点</span><strong id="point-count">—</strong></div></div>
+<div class="map-toolbar"><div class="segmented" aria-label="对比模式"><button type="button" data-mode="split" aria-pressed="true">并排对比</button><button type="button" data-mode="overlay" aria-pressed="false">叠加对比</button></div><div class="view-tools"><label class="check" id="original-control"><input type="checkbox" id="show-original" checked><i class="line-key original"></i>原始</label><label class="check" id="clean-control"><input type="checkbox" id="show-clean" checked><i class="line-key cleaned"></i>处理后</label><button type="button" id="fit" class="quiet">适应全图</button></div></div>
+<div id="map-stage" class="map-stage split">
+<div class="map-pane" id="original-pane"><div class="map-label"><i class="line-key original"></i><h3>原始轨迹</h3><span id="original-map-info">未载入</span></div><div class="map-host" id="original-map"></div></div>
+<div class="map-pane" id="clean-pane"><div class="map-label"><i class="line-key cleaned"></i><h3>处理后轨迹</h3><span id="clean-map-info">未载入</span></div><div class="map-host" id="clean-map"></div></div>
+<div id="map-empty" class="map-empty"><svg viewBox="0 0 120 80" aria-hidden="true"><path d="M12 65 33 19l26 33 27-40 22 47-49-7-26-33"/><circle cx="12" cy="65" r="4"/><circle cx="108" cy="59" r="4"/></svg><strong>在这里，看见真实的变化</strong><span>使用示例快速开始，或读取自己的 GPX 文件夹。</span></div>
+<div class="zoom-tools"><button id="zoom-in" type="button" aria-label="放大">＋</button><button id="zoom-out" type="button" aria-label="缩小">−</button></div>
+</div>
+<div class="map-footer"><span>本地几何视图 · 无在线底图</span><span>滚轮缩放 / 拖动平移 / 方向键平移 / 双击复位</span></div>
+<section id="result-details" hidden><div class="result-bottom"><div><h3>处理结论</h3><p id="conclusion"></p><p id="closure-note" class="muted"></p></div><div class="downloads"><a id="download-gpx" class="button secondary" download>下载 GPX</a><a id="download-geojson" download>GeoJSON</a><a id="download-report" download>JSON 报告</a></div></div><div class="notice"><strong>使用前请确认</strong><span>当前仅支持往返尾巴裁剪与重复整圈识别，不是任意道路去重。输出不保留时间戳；闭合点可能进行小距离中点拼接，导航前需核对道路。</span><a href="/about#support">查看支持边界</a></div><details class="data-section"><summary>坐标数据与详细报告</summary><div class="data-tabs"><button id="table-original" type="button" aria-pressed="true">原始坐标</button><button id="table-clean" type="button" aria-pressed="false">处理后坐标</button></div><p class="muted">与图中轨迹一一对应。悬停或键盘聚焦地图可读取最近轨迹点。</p><div class="table-scroll"><table><thead><tr><th>点序号</th><th>经度</th><th>纬度</th></tr></thead><tbody id="coordinates"></tbody></table></div><details><summary>原始 JSON 报告</summary><pre id="report"></pre></details></details></section>
+</section>
+</main><footer class="site-footer">GPX 路线实验室 <span>几何去重原型，不替代道路导航。</span><a href="/about">算法与技术路线</a></footer>
+</body></html>

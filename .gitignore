@@ -1,0 +1,33 @@
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Private GPX data and generated results (never upload local routes)
+*.gpx
+*.GPX
+gpx_dedupe_output/
+gpx_dedupe_run_*/
+gpx_dedupe_project/outputs/
+gpx_dedupe_project/output/
+gpx_dedupe_project/route_output/
+
+# Local tools, credentials and editor state
+.claude/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+node_modules/
+playwright-report/
+test-results/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
