@@ -19,9 +19,33 @@ const path=require('node:path');
     await page.locator('#run').click();
     await page.waitForFunction(()=>!document.querySelector('#run').disabled,{},{timeout:120000});
     console.log('User folder first file:',userFile,'->',await page.locator('#status').innerText());
+    await page.locator('#filter').fill('37002172.gpx');
+    const privateRoute=page.locator('.file-item').filter({has:page.locator('strong',{hasText:/^37002172\.gpx$/})}).first();
+    if (await privateRoute.count()) {
+      await privateRoute.click();
+      const targetResponse=page.waitForResponse(r=>r.url().endsWith('/api/run')&&r.request().method()==='POST');
+      await page.locator('#run').click();
+      const target=await (await targetResponse).json();
+      await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('处理完成'),{},{timeout:120000});
+      assert.equal(target.report.method,'reversed_tail_collapse');
+      assert.equal(target.report.source,'37002172.gpx');
+      assert.ok(target.report.retraced_tail.prefix_matched_m>3000);
+      assert.ok(target.report.retraced_tail.unmatched_access_m>2000);
+      assert.equal(target.report.output_closed,true);
+      assert.match(await page.locator('#conclusion').innerText(),/没有反向匹配证据.*不是保留全部唯一路段/);
+      console.log('Reported route:',JSON.stringify(target.report));
+      await page.screenshot({path:path.join(output,'37002172-desktop.png'),fullPage:true});
+      await page.locator('[data-mode=overlay]').click();
+      await page.screenshot({path:path.join(output,'37002172-overlay.png'),fullPage:true});
+      await page.locator('[data-mode=split]').click();
+    } else {
+      console.log('SKIP: optional private 37002172.gpx route is not listed.');
+    }
+    await page.locator('#filter').fill('');
     await page.locator('#use-example').click();
     await page.waitForFunction(()=>!document.querySelector('#scan').disabled&&document.querySelector('#folder').value.endsWith('examples'));
-    assert.equal(await page.locator('.file-item strong').innerText(),'34044834.gpx');
+    const publicRoute=page.locator('.file-item').filter({has:page.locator('strong',{hasText:/^34044834\.gpx$/})}).first();
+    await publicRoute.click();
     await page.locator('#run').click();
     await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('处理完成'),{},{timeout:120000});
     assert.equal(await page.locator('#original-length').innerText(),'46.204 km');
