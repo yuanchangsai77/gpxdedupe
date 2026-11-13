@@ -61,7 +61,9 @@ function startWorkbench() {
       $('original-length').textContent=km(r.input_length_m);$('clean-length').textContent=km(r.output_length_m);$('removed-length').textContent=km(r.removed_length_m);$('point-count').textContent=`${r.input_points} → ${r.output_points}`;
       $('original-map-info').textContent=km(r.input_length_m);$('clean-map-info').textContent=km(r.output_length_m);
       const conclusions={reversed_tail_collapse:'识别到首尾同路往返的尾巴，裁剪首尾两段，保留中间的主体闭环。',repeated_laps_collapse:`识别到 ${r.identical_laps?.count ?? '多'} 圈近似重复整圈，保留其中一圈。`,unchanged:'没有发现符合当前规则的可去重结构，轨迹保持不变。这不代表轨迹中不存在重复道路。',unchanged_tails_not_connectable:'检测到往返尾巴，但切点间距超出安全拼接范围，因此保持原样。',unchanged_lap_gap_too_large:'检测到重复圈，但单圈端点间距过大，因此保持原样。'};
-      $('conclusion').textContent=conclusions[r.method]||r.method;
+      const tail=r.retraced_tail;
+      const evidence=r.method==='reversed_tail_collapse' && tail ? ` 连续反向匹配约 ${km(tail.prefix_matched_m)}；裁掉的首尾行程中，约 ${km(tail.unmatched_access_m ?? 0)} 没有反向匹配证据。这是主体闭环裁剪，不是保留全部唯一路段。` : '';
+      $('conclusion').textContent=(conclusions[r.method]||r.method)+evidence;
       $('result-badge').textContent=r.method==='reversed_tail_collapse'?'往返尾巴已裁剪':r.method==='repeated_laps_collapse'?'重复整圈已合并':'保持原样';
       $('closure-note').textContent=`处理后${r.output_closed?'为闭合轨迹':'不是严格闭合轨迹'}。${r.retraced_tail?`检测切点间距 ${r.retraced_tail.gap_m.toFixed(2)} 米。`:''}匹配半径 ${r.config.match_radius_m} 米。`;
       for(const [id,key] of [['download-gpx','gpx'],['download-geojson','geojson'],['download-report','report']]) $(id).href=result.downloads[key];

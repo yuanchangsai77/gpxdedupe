@@ -32,7 +32,8 @@ class Config:
     heading_min_opposite: float = 0.55
     closure_radius_m: float = 25.0
     allow_bridge_m: float = 20.0
-    max_tail_m: float = 2500.0
+    max_tail_m: float | None = None
+    min_tail_match_fraction: float = 0.70
 
 
 def load_gpx(path):
@@ -90,54 +91,74 @@ def overlap_stats(s,q,cfg):
 
 
 def find_retraced_tails(s,q,cfg):
-    """Find the longest continuous prefix matching the reversed end of a closed route.
+    """Find sustained reverse-aligned runs in the first/last 45% of a loop.
 
-    Return a splice point (index in sampled trajectory) at the far end of the
-    shared stem. We ignore isolated crossings and penalize non-reverse headings.
+    Match local progression rather than requiring s[i] + s[j] == total length:
+    access roads and GPS offsets can make the two traversals unequal. Short
+    crossings are rejected. Cropping still removes BOTH access tails, including
+    unmatched portions, which are explicitly measured in the returned evidence.
+    This is not a unique-edge graph reconstruction or an out-and-back converter.
     """
-    L=float(s[-1]); n=len(q)
+    L=float(s[-1])
     if np.linalg.norm(q[0]-q[-1])>cfg.closure_radius_m:return None
-    extent=min(cfg.max_tail_m,L*0.18)
+    extent=L*0.45
+    if cfg.max_tail_m is not None:extent=min(extent,cfg.max_tail_m)
     first=np.flatnonzero(s<=extent)
     last=np.flatnonzero(s>=L-extent)
-    last=last[last>first[-1]+5]
-    if len(last)<10 or len(first)<10: return None
+    if len(last)<10 or len(first)<10:return None
     tree=cKDTree(q[last]);dirs=tangent(q)
-    distances,near=tree.query(q[first],k=min(8,len(last)))
-    if distances.ndim==1:distances=distances[:,None];near=near[:,None]
-    # Pick closest candidate with opposite direction and progression compatibility.
-    chosen=np.full(len(first),-1,dtype=int)
-    candidate_dist=np.full(len(first),np.inf)
-    last_j=n
-    for x,i in enumerate(first):
-        for d,index in sorted(zip(distances[x],near[x]),key=lambda z:z[0]):
-            j=int(last[index])
-            if d>cfg.match_radius_m:break
-            if float(dirs[i]@dirs[j])>-cfg.heading_min_opposite:continue
-            # Along shared stem, the sum of arclengths stays near route total,
-            # allowing offsets due to GPS noise and sampling differences.
-            if abs((s[i]+s[j])-L)>max(120.,2*cfg.match_radius_m+60.):continue
-            if j>last_j+4:continue
-            chosen[x]=j;candidate_dist[x]=d;last_j=min(last_j,j)
+    runs=[];current=[]
+    # Consume bounded batches instead of retaining every spatial pair at once.
+    for offset in range(0,len(first),128):
+        batch=first[offset:offset+128]
+        neighbours=tree.query_ball_point(q[batch],cfg.match_radius_m)
+        for i,near in zip(batch,neighbours):
+            candidates=[int(last[k]) for k in near
+                        if float(dirs[i]@dirs[last[k]])<=-cfg.heading_min_opposite]
+            if current and s[i]-s[current[-1][0]]>70+cfg.spacing_m:
+                runs.append(current);current=[]
+            if current:
+                pi,pj=current[-1]
+                # Local arc increments must agree; do not jump to another branch.
+                candidates=[j for j in candidates if j<=pj and
+                            abs((s[i]-s[pi])-(s[pj]-s[j]))<=max(40.,2*cfg.match_radius_m)]
+            if candidates:
+                j=min(candidates,key=lambda j:float(np.linalg.norm(q[i]-q[j])))
+                current.append((int(i),j))
+    if current:runs.append(current)
+    best=None
+    for run in runs:
+        start_i,start_j=run[0]
+        # A later noisy endpoint must not invalidate an earlier safe splice.
+        # Matched length is nondecreasing, so the first valid prefix is best.
+        for finish in range(len(run)-1,0,-1):
+            i,j=run[finish]
+            span=float(s[i]-s[start_i]);reverse_span=float(s[start_j]-s[j])
+            matched_m=min(span,reverse_span,finish*cfg.spacing_m)
+            if matched_m<cfg.min_overlap_m:break
+            if best is not None and matched_m<=best['prefix_matched_m']:break
+            if matched_m/max(span,reverse_span,1.)<0.85:continue
+            prefix=float(s[i]);suffix=float(L-s[j])
+            coverage=min(matched_m/max(prefix,1.),matched_m/max(suffix,1.))
+            if coverage<cfg.min_tail_match_fraction:continue
+            if s[j]-s[i]<3*cfg.min_overlap_m:continue
+            gap=float(np.linalg.norm(q[i]-q[j]))
+            if gap>cfg.allow_bridge_m:continue
+            # Inspect the retained middle, not the whole route: long access
+            # tails must not hide a real small loop in a global majority vote.
+            probes=np.linspace(s[i],(s[i]+s[j])/2,151)
+            forward=np.column_stack([np.interp(probes,s,q[:,axis]) for axis in range(2)])
+            reverse=np.column_stack([np.interp(s[i]+s[j]-probes,s,q[:,axis]) for axis in range(2)])
+            if np.mean(np.linalg.norm(forward-reverse,axis=1)<=cfg.match_radius_m)>=0.85:continue
+            best={'cut_start_m':prefix,'cut_end_m':float(s[j]),
+                  'cut_start_index':i,'cut_end_index':j,'gap_m':gap,
+                  'matched_samples':finish+1,'prefix_matched_m':matched_m,
+                  'match_start_m':float(s[start_i]),
+                  'matched_reverse_m':matched_m,
+                  'tail_match_fraction':float(coverage),
+                  'unmatched_access_m':max(0.,prefix+suffix-2*matched_m)}
             break
-    ok=chosen>=0
-    # Allow short GPS mismatch gaps; stop when > 70 m without match.
-    longest_gap=int(max(7,70/cfg.spacing_m))
-    last_good=0;miss=0
-    for ix,v in enumerate(ok):
-        if v: last_good=ix;miss=0
-        else: miss+=1
-        if miss>longest_gap: break
-    if s[first[last_good]]<cfg.min_overlap_m:return None
-    # Robustly select the farthest match from a 60m window before divergence.
-    eligible=np.flatnonzero(ok & (np.arange(len(ok))<=last_good))
-    if not len(eligible):return None
-    finish=int(eligible[-1]); j=int(chosen[finish]);i=int(first[finish])
-    return {'cut_start_m':float(s[i]),'cut_end_m':float(s[j]),
-            'cut_start_index':i,'cut_end_index':j,
-            'gap_m':float(np.linalg.norm(q[i]-q[j])),
-            'matched_samples':int(sum(ok[:finish+1])),
-            'prefix_matched_m':float(s[i])}
+    return best
 
 
 def find_identical_laps(s,q,cfg):
@@ -232,6 +253,8 @@ def run(path,out_dir,cfg=Config()):
             'notes':['Counts and matches are based on projected geometry, not OSM map matching.',
                      'This prototype does not automatically remove arbitrary internal repeated branches.',
                      'Output omits timestamps because modified geometry invalidates original time semantics.',
+                     'Tail cropping retains the middle loop and removes both access legs, not just one duplicate traversal.',
+                     'retraced_tail.unmatched_access_m estimates removed travel without reverse-match evidence; it is not verified unique-road length.',
                      'For retraced tails, two GPS observations are snapped to a shared midpoint; validate against roads before navigation.'],
             'config':asdict(cfg)}
     write_gpx(out_dir/'cleaned.gpx',out,result_ele,title+' (deduplicated)')
