@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -10,20 +12,22 @@ import math
 import mimetypes
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import threading
 from urllib.parse import unquote, urlsplit
 import uuid
 
 import route_dedupe
+import route_plans
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_DIR = r"D:\7281\workspace\route\1\komoot\Algeria\Algeria\02_明细\gpx"
 MAX_BODY_BYTES = 16 * 1024
 MAX_GPX_BYTES = 50 * 1024 * 1024
 MAX_FILES = 2000
-DOWNLOAD_NAMES = {"gpx": "cleaned.gpx", "geojson": "cleaned.geojson", "report": "report.json"}
+DOWNLOAD_NAMES = {"gpx": "cleaned.gpx", "geojson": "cleaned.geojson", "report": "report.json", "manifest": "manifest.json"}
+MAX_ANALYSES = 8
+ANALYSIS_TTL_SECONDS = 30 * 60
 
 
 class APIError(Exception):
@@ -68,6 +72,7 @@ class LocalServer(ThreadingHTTPServer):
         self.downloads: dict[str, FileRecord] = {}
         self.state_lock = threading.Lock()
         self.run_lock = threading.Lock()
+        self.analyses: dict[str, dict] = {}
         super().__init__((loopback_host(host), port), Handler)
 
     def list_files(self, body):
@@ -114,23 +119,19 @@ class LocalServer(ThreadingHTTPServer):
             self.files.update(records)
         return {"folder": str(root), "files": files, "truncated": truncated}
 
-    def run_file(self, body):
-        file_id = body.get("file_id")
-        radius = body.get("radius", 18)
+    def source_record(self, file_id):
         if not isinstance(file_id, str):
             raise APIError(400, "file_id 必须是列表返回的文件标识")
-        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
-            raise APIError(400, "radius 必须是数值")
-        if not math.isfinite(radius) or not 0 < radius <= 1000:
-            raise APIError(400, "radius 必须大于 0 且不超过 1000 米")
         with self.state_lock:
             record = self.files.get(file_id)
         if record is None:
             raise APIError(404, "文件标识不存在，请重新列出目录")
+        return record
+
+    def read_source(self, record):
         stat = safe_file(record.path, record.root)
         if stat.st_size > MAX_GPX_BYTES:
             raise APIError(413, "GPX 文件不能超过 50MB")
-        # Work on a bounded snapshot, not a path the caller can change while run parses it.
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         with os.fdopen(os.open(record.path, flags), "rb") as source:
             opened = os.fstat(source.fileno())
@@ -139,42 +140,132 @@ class LocalServer(ThreadingHTTPServer):
             data = source.read(MAX_GPX_BYTES + 1)
         if len(data) > MAX_GPX_BYTES:
             raise APIError(413, "GPX 文件不能超过 50MB")
-        # Expat accepts UTF-16/32 as well; strip NULs for the declaration check.
         xml_text = data.replace(b"\x00", b"").upper()
         if b"<!DOCTYPE" in xml_text or b"<!ENTITY" in xml_text:
             raise APIError(400, "GPX 不允许包含 DTD 或实体声明")
+        return data
+
+    def prepare_output(self):
         if has_link(self.output_dir):
             raise APIError(403, "输出目录不允许使用符号链接或目录联接")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        run_id = uuid.uuid4().hex
-        out = self.output_dir / run_id
-        out.mkdir()
+
+    def register_downloads(self, run_id, out, names):
+        urls = {kind: f"/api/download/{run_id}/{kind}" for kind in names}
+        with self.state_lock:
+            self.downloads.update({url: FileRecord(out / names[kind], out.resolve())
+                                   for kind, url in urls.items()})
+        return urls
+
+    def analyze_file(self, body):
+        radius = body.get("radius", 18)
+        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
+            raise APIError(400, "radius 必须是数值")
+        if not math.isfinite(radius) or not 0 < radius <= 1000:
+            raise APIError(400, "radius 必须大于 0 且不超过 1000 米")
+        record = self.source_record(body.get("file_id"))
+        # Admission happens before reading any large snapshot, not after allocation.
+        if not self.run_lock.acquire(blocking=False):
+            raise APIError(429, "正在分析或导出另一条路线，请完成后重试")
         try:
-            with self.run_lock, tempfile.TemporaryDirectory(prefix="input-", dir=out) as tmp:
+            data = self.read_source(record)
+            self.prepare_output()
+            analysis_id = uuid.uuid4().hex
+            out = self.output_dir / analysis_id
+            with tempfile.TemporaryDirectory(prefix="analysis-", dir=self.output_dir) as tmp:
                 snapshot = Path(tmp) / record.path.name
                 snapshot.write_bytes(data)
-                original, _, _, _ = route_dedupe.load_gpx(snapshot)
-                if any(not math.isfinite(float(lon)) or not math.isfinite(float(lat))
-                       or not -180 <= lon <= 180 or not -90 <= lat <= 90
-                       for lon, lat in original):
-                    raise APIError(400, "GPX 经纬度必须是有效范围内的有限数值")
-                report, _, _ = route_dedupe.run(
-                    snapshot, out, route_dedupe.Config(match_radius_m=float(radius)))
-                cleaned = json.loads((out / "cleaned.geojson").read_text(encoding="utf-8"))
-                response = {"run_id": run_id, "report": report,
-                            "original": original.tolist(),
-                            "cleaned": cleaned["features"][0]["geometry"]["coordinates"],
-                            "downloads": {kind: f"/api/download/{run_id}/{kind}"
-                                          for kind in DOWNLOAD_NAMES}}
-                # Verify serializability before making any downloads visible.
+                analysis = route_plans.analyze(snapshot, route_dedupe.Config(match_radius_m=float(radius)))
+                report = {**analysis["report"], "schema_version": analysis["schema_version"],
+                          "input_sha256": analysis["input_sha256"], "plan_digest": analysis["plan_digest"],
+                          "phase": "analysis", "confirmed": False, "road_identity_verified": False,
+                          "candidate": analysis["candidate"]}
+                if analysis["candidate"] and analysis["candidate"]["blocked_reasons"]:
+                    # The unsafe legacy proposal is evidence, not the displayed preview.
+                    report["proposed_output"] = {key: report[key] for key in
+                                                 ("method", "output_points", "output_length_m", "removed_length_m", "output_closed")}
+                    report.update(method="unchanged", output_points=report["input_points"],
+                                  output_length_m=report["input_length_m"], removed_length_m=0.,
+                                  output_closed=report["start_end_distance_m"] < .1)
+                response = {"analysis_id": analysis_id, "plan_digest": analysis["plan_digest"],
+                            "report": report, "candidate": analysis["candidate"],
+                            "original": analysis["original"], "cleaned": analysis["preview"],
+                            "downloads": {"report": f"/api/download/{analysis_id}/report"}}
                 json.dumps(response, allow_nan=False)
+                published = Path(tmp) / "published"
+                published.mkdir()
+                (published / "report.json").write_text(
+                    json.dumps(report, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
+                published.rename(out)
+            now = time.monotonic()
             with self.state_lock:
-                self.downloads.update({url: FileRecord(out / DOWNLOAD_NAMES[kind], out.resolve())
-                                       for kind, url in response["downloads"].items()})
+                expired = [key for key, value in self.analyses.items()
+                           if now - value["created"] >= ANALYSIS_TTL_SECONDS]
+                for key in expired:
+                    del self.analyses[key]
+                while len(self.analyses) >= MAX_ANALYSES:
+                    del self.analyses[next(iter(self.analyses))]
+                self.analyses[analysis_id] = {"analysis": analysis, "record": record, "created": now}
+            self.register_downloads(analysis_id, out, {"report": "report.json"})
             return response
-        except Exception:
-            shutil.rmtree(out)
-            raise
+        finally:
+            self.run_lock.release()
+
+    def run_file(self, body):
+        # Old clients cannot bypass P0: /api/run is now an analyze-only alias.
+        return self.analyze_file(body)
+
+    def apply_file(self, body):
+        analysis_id = body.get("analysis_id")
+        if not isinstance(analysis_id, str):
+            raise APIError(400, "必须提供分析标识，请先分析路线")
+        if not self.run_lock.acquire(blocking=False):
+            raise APIError(429, "正在分析或导出另一条路线，请完成后重试")
+        try:
+            with self.state_lock:
+                entry = self.analyses.get(analysis_id)
+            if entry is None or time.monotonic() - entry["created"] >= ANALYSIS_TTL_SECONDS:
+                raise APIError(409, "分析已过期或不存在，请重新分析")
+            analysis = entry["analysis"]
+            candidate = analysis["candidate"]
+            if candidate is None or candidate.get("blocked_reasons"):
+                raise APIError(409, "没有可执行候选或候选已被安全检查阻止，请保留原轨迹")
+            if body.get("plan_digest") != analysis["plan_digest"]:
+                raise APIError(409, "计划版本不匹配，请重新分析")
+            if body.get("goal") != candidate["goal"]:
+                raise APIError(400, "处理目标必须与当前候选一致")
+            if body.get("confirm") is not True or body.get("acknowledge_geometry_only") is not True:
+                raise APIError(400, "必须明确确认候选及仅几何证据的限制")
+            if candidate["goal"] == "main_loop" and body.get("acknowledge_access_loss") is not True:
+                raise APIError(400, "主体环裁切必须明确同意删除两侧接入行程")
+            data = self.read_source(entry["record"])
+            if hashlib.sha256(data).hexdigest() != analysis["input_sha256"]:
+                raise APIError(409, "源文件已变化，请重新分析并确认")
+            self.prepare_output()
+            run_id = uuid.uuid4().hex
+            out = self.output_dir / run_id
+            with tempfile.TemporaryDirectory(prefix="apply-", dir=self.output_dir) as tmp:
+                snapshot = Path(tmp) / entry["record"].path.name
+                snapshot.write_bytes(data)
+                published = Path(tmp) / "published"
+                report, original, cleaned = route_plans.apply(
+                    snapshot, published, analysis, goal=body.get("goal"),
+                    plan_digest=body.get("plan_digest"), confirm=body.get("confirm"),
+                    acknowledge_access_loss=body.get("acknowledge_access_loss"),
+                    acknowledge_geometry_only=body.get("acknowledge_geometry_only"))
+                response = {"run_id": run_id, "report": report,
+                            "original": original.tolist() if hasattr(original, "tolist") else original,
+                            "cleaned": cleaned.tolist() if hasattr(cleaned, "tolist") else cleaned,
+                            "downloads": {kind: f"/api/download/{run_id}/{kind}" for kind in DOWNLOAD_NAMES}}
+                json.dumps(response, allow_nan=False)
+                for name in DOWNLOAD_NAMES.values():
+                    if not (published / name).is_file():
+                        raise APIError(500, "导出制品不完整，未发布结果")
+                published.rename(out)
+            self.register_downloads(run_id, out, DOWNLOAD_NAMES)
+            return response
+        finally:
+            self.run_lock.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -293,8 +384,10 @@ class Handler(BaseHTTPRequestHandler):
                 body = self.read_json()
                 if path == "/api/files":
                     result = self.server.list_files(body)
-                elif path == "/api/run":
-                    result = self.server.run_file(body)
+                elif path in ("/api/run", "/api/analyze"):
+                    result = self.server.analyze_file(body)
+                elif path == "/api/apply":
+                    result = self.server.apply_file(body)
                 else:
                     raise APIError(404, "API 不存在")
                 self.send_json(200, result)
@@ -302,6 +395,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise APIError(405, "请求方法不支持，禁止跨域预检")
         except APIError as error:
             self.send_json(error.status, {"error": str(error)})
+        except route_plans.PlanError as error:
+            self.send_json(400, {"error": str(error)})
         except FileNotFoundError:
             self.send_json(404, {"error": "文件或目录不存在"})
         except PermissionError:
