@@ -1,6 +1,14 @@
 # GPX 路线
 
-本地运行的 GPX 轨迹几何去重工具，包含轨迹对比页面和项目说明页面。
+本地运行的 GPX 几何分析与候选裁切工具，包含轨迹对比页面和项目说明页面。
+
+## P0 安全流程
+
+网页默认仅分析：点击「分析路线」只生成候选预览和 JSON 分析报告，不发布转换 GPX/GeoJSON。需要先选择与候选一致的处理目标、确认仅几何证据的限制；主体环还必须明确同意删除两侧接入行程，才能确认转换。已被安全检查阻止的候选不能绕过确认执行。源文件、计划版本或参数变化后需重新分析。
+
+`POST /api/analyze` 生成候选，`POST /api/apply` 严格核验分析、输入 SHA-256、目标与确认后导出，并附 `manifest.json`。旧 `/api/run` 变为仅分析别名，不再直接生成转换文件。分析有效期 30 分钟，内存最多保留 8 份待确认分析；服务重启后需重做。准入锁在读取源文件前获取，繁忙返回 429，不无限排队。
+
+这是完整方案的 P0 增量，不是图重构、异步作业或导航规划。新增保护采用保守拒绝，不保证识别所有往返/平行道路；真实成功率仍未知。原 `route_dedupe.py` 命令行及 `run()` 仍是 **legacy 直接裁切入口**，供回归与兼容使用，不具备网页确认安全流程，勿将其视为安全接口。
 
 ## 功能
 
@@ -45,6 +53,8 @@ python route_dedupe.py /path/to/route.gpx --out output --radius 18
 cd gpx_dedupe_project
 python tests/test_route_dedupe.py
 python -m unittest discover -s tests -p "test_web_app.py" -v
+# 以下从仓库根目录运行，覆盖新增 P0 计划与危险负例测试：
+# python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 真实 GPX 示例是本机数据，默认不上传；没有该文件时，真实文件测试会跳过，其余合成轨迹与 HTTP 测试仍可运行。浏览器验收脚本位于 `tests/browser_smoke.cjs`，需要 Playwright、浏览器和本机测试目录，不属于默认自动测试。

@@ -6,6 +6,7 @@
 <main class="about-main guide-main">
 <section class="guide-intro"><h1>一条轨迹，<br>不止一种路线结构。</h1><p>先分清路线的拓扑，再决定要保留什么。这里说明常见结构怎样识别、哪里容易出错、识别之后有哪些处理选择，以及 GPX 路线目前真正做到了哪一步。</p><a class="button" href="/">打开轨迹对比</a></section>
 <nav class="guide-nav" aria-label="说明目录"><a href="#concepts">理解拓扑</a><a href="#support">结构总览</a><a href="#cases">逐类前后对比</a><a href="#technical">识别规则</a><a href="#rates">成功率与证据</a><a href="#decisions">选择处理目标</a><a href="#limits">限制与规划</a></nav>
+<div class="notice"><strong>P0 安全流程已加入</strong><span>网页默认仅分析，先看候选预览与证据，再显式选择目标并确认导出；主体环须额外同意删除两侧接入行程。源文件和计划版本会复核，安全检查阻止的候选不能执行。纯往返退化与横向偏移增加保守阻止，不代表已能识别真实道路。下文处理示意与 352 样本表描述 legacy 原算法基线，不是 P0 转换成功率；命令行 legacy 入口仍不经过网页确认。异步作业、硬内存/时间隔离、图重构与地图匹配仍未实现。</span></div>
 <div class="notice"><strong>先说明边界</strong><span>目前只有首尾往返尾巴裁剪、完整同向重复圈合并两类变换。下文的拓扑分类是知识说明，不是软件已输出的分类结果；处理方式标为“规划”的尚无可操作按钮。真实路线成功概率尚未建立。</span></div>
 
 <section class="about-section" id="concepts"><h2>拓扑描述“怎样连接”，轨迹还记录“怎样走过”</h2><p>将路口、起终点、折返点看成节点，将节点之间的道路看成边；轨迹则是按时间顺序经过这些边的记录。同一条边可能走一次、多次，方向也可能相反。</p><div class="explanation-columns"><article class="text-panel"><h3>三个不同的问题</h3><ul><li><strong>几何重合：</strong>两个位置足够接近，可能来自同一道路，也可能是平行路或上下层。</li><li><strong>拓扑相连：</strong>道路真的能在该位置转向连接。画面上的交叉不一定是路口。</li><li><strong>通过次数：</strong>同一条边按什么顺序、什么方向走了几次。这决定哪些行程重复。</li></ul></article><article class="text-panel"><h3>分类可以叠加，不是互斥菜单</h3><p>一条路线可能是“长尾巴＋8 字双环＋内部支路”，也可能“先走两圈，再多走半圈”。下面列的是常见构件与组合，不是穷尽所有数学图结构。</p><p>当前程序不建立完整道路图，不会输出“这是 8 字、含 3 个分叉”之类的结构标签。它只尝试两个几何变换；<code>unchanged</code> 不是“已证明没有重复”。</p></article></div></section>

@@ -145,28 +145,24 @@ class WebAppTests(unittest.TestCase):
         self.assert_error(self.request("POST", "/api/files", {"folder": str(self.folder / "absent")}), 404)
         self.assert_error(self.request("POST", "/api/files", {"folder": str(self.folder / "路线.GPX")}), 400)
 
-    def test_run_and_downloads(self):
+    def test_run_alias_is_analysis_only(self):
         status, _, result = self.run_route()
         self.assertEqual(status, 200, result)
-        self.assertEqual(set(result), {"run_id", "report", "original", "cleaned", "downloads"})
+        self.assertEqual(set(result), {"analysis_id", "plan_digest", "candidate", "report", "original", "cleaned", "downloads"})
         self.assertEqual(result["original"], [[3.05, 36.75], [3.051, 36.751], [3.052, 36.752]])
         self.assertEqual(result["report"]["input_points"], 3)
         self.assertEqual(result["report"]["source"], "路线.GPX")
         self.assertEqual(result["report"]["config"]["match_radius_m"], 18)
-        out = self.output / result["run_id"]
-        self.assertEqual({p.name for p in out.iterdir()}, {"cleaned.gpx", "cleaned.geojson", "report.json"})
-        for kind, url in result["downloads"].items():
-            status, headers, body = self.request(path=url)
-            self.assertEqual(status, 200)
-            self.assertIn("attachment;", headers["Content-Disposition"])
-            self.assertEqual(headers["Cache-Control"], "no-store")
-            if kind == "gpx":
-                self.assertIn(b"<trkpt", body)
-            elif kind == "report":
-                self.assertEqual(body, result["report"])
-            else:
-                geo = json.loads(body)
-                self.assertEqual(geo["features"][0]["geometry"]["coordinates"], result["cleaned"])
+        self.assertEqual(result["report"]["phase"], "analysis")
+        self.assertIs(result["report"]["confirmed"], False)
+        self.assertEqual(set(result["downloads"]), {"report"})
+        out = self.output / result["analysis_id"]
+        self.assertEqual({p.name for p in out.iterdir()}, {"report.json"})
+        status, headers, report = self.request(path=result["downloads"]["report"])
+        self.assertEqual(status, 200)
+        self.assertEqual(report, result["report"])
+        self.assertIn("attachment;", headers["Content-Disposition"])
+        self.assert_error(self.request(path=f"/api/download/{result['analysis_id']}/gpx"), 404)
 
     def test_real_fixture_run(self):
         candidates = [web_app.PROJECT_DIR / "examples" / "34044834.gpx", web_app.PROJECT_DIR / "34044834.gpx"]
@@ -180,7 +176,12 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(body["report"]["input_points"], len(body["original"]))
         self.assertEqual(body["report"]["output_points"], len(body["cleaned"]))
         self.assertGreater(body["report"]["input_length_m"], 10000)
-        self.assertGreater(body["report"]["removed_length_m"], 0)
+        if body['candidate'] and body['candidate']['blocked_reasons']:
+            self.assertEqual(body['cleaned'], body['original'])
+            self.assertEqual(body['report']['removed_length_m'], 0)
+            self.assertGreater(body['report']['proposed_output']['removed_length_m'], 0)
+        else:
+            self.assertGreater(body['report']['removed_length_m'], 0)
 
     def test_radius_validation_and_unknown_id(self):
         entry = self.files()[2]["files"][0]
@@ -302,10 +303,121 @@ class WebAppTests(unittest.TestCase):
     def test_download_symlink_rejected(self):
         status, _, result = self.run_route()
         self.assertEqual(status, 200)
-        target = self.output / result["run_id"] / "cleaned.gpx"
+        target = self.output / result["analysis_id"] / "report.json"
         target.unlink()
         self.make_link(self.folder / "路线.GPX", target)
-        self.assert_error(self.request(path=result["downloads"]["gpx"]), 403)
+        self.assert_error(self.request(path=result["downloads"]["report"]), 403)
+
+    def analyze_laps(self):
+        import numpy as np
+        from pyproj import Transformer
+        angle = np.linspace(0, 4 * np.pi, 401)
+        xy = np.column_stack((500000 + 200 * np.cos(angle), 4000000 + 200 * np.sin(angle)))
+        inv = Transformer.from_crs('EPSG:32632', 'EPSG:4326', always_xy=True)
+        coords = np.column_stack(inv.transform(xy[:, 0], xy[:, 1]))
+        web_app.route_dedupe.write_gpx(self.folder / '路线.GPX', coords, np.zeros(len(coords)), '测试重复圈')
+        entry = self.files()[2]['files'][0]
+        status, _, result = self.request('POST', '/api/analyze', {'file_id': entry['id']})
+        self.assertEqual(status, 200, result)
+        self.assertIsNotNone(result['candidate'])
+        self.assertFalse(result['candidate']['blocked_reasons'])
+        return result
+
+    def decision(self, result, **changes):
+        body = {'analysis_id': result['analysis_id'], 'plan_digest': result['plan_digest'],
+                'goal': result['candidate']['goal'], 'confirm': True,
+                'acknowledge_access_loss': False, 'acknowledge_geometry_only': True}
+        body.update(changes)
+        return self.request('POST', '/api/apply', body)
+
+    def test_confirmed_apply_and_manifest(self):
+        result = self.analyze_laps()
+        source = (self.folder / '路线.GPX').read_bytes()
+        status, _, exported = self.decision(result)
+        self.assertEqual(status, 200, exported)
+        self.assertTrue(exported['report']['confirmed'])
+        self.assertFalse(exported['report']['road_identity_verified'])
+        self.assertEqual(set(exported['downloads']), {'gpx', 'geojson', 'report', 'manifest'})
+        for kind, url in exported['downloads'].items():
+            status, headers, data = self.request(path=url)
+            self.assertEqual(status, 200, (kind, data))
+            self.assertIn('attachment;', headers['Content-Disposition'])
+        self.assertEqual((self.folder / '路线.GPX').read_bytes(), source)
+        out = self.output / exported['run_id']
+        self.assertEqual({p.name for p in out.iterdir()}, set(web_app.DOWNLOAD_NAMES.values()))
+
+    def test_apply_requires_exact_decisions(self):
+        result = self.analyze_laps()
+        for changes, code in (({'confirm': False}, 400), ({'confirm': 1}, 400),
+                              ({'acknowledge_geometry_only': False}, 400),
+                              ({'goal': 'main_loop'}, 400), ({'plan_digest': 'bad'}, 409)):
+            with self.subTest(changes=changes):
+                self.assert_error(self.decision(result, **changes), code)
+        self.assert_error(self.request('POST', '/api/apply', {'analysis_id': 'missing'}), 409)
+        self.assert_error(self.request('POST', '/api/apply', {}), 400)
+
+    def test_tail_requires_access_loss_acknowledgment(self):
+        import numpy as np
+        from pyproj import Transformer
+        points = np.asarray([[0, 0], [1000, 0], [1000, 300], [1600, 300],
+                             [1600, -300], [1000, -300], [1000, 0], [0, 0]], dtype=float)
+        points += [500000, 4000000]
+        inv = Transformer.from_crs('EPSG:32632', 'EPSG:4326', always_xy=True)
+        coords = np.column_stack(inv.transform(points[:, 0], points[:, 1]))
+        web_app.route_dedupe.write_gpx(self.folder / '路线.GPX', coords, np.zeros(len(coords)), '测试尾巴')
+        entry = self.files()[2]['files'][0]
+        status, _, result = self.request('POST', '/api/analyze', {'file_id': entry['id']})
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result['candidate']['goal'], 'main_loop')
+        self.assertFalse(result['candidate']['blocked_reasons'])
+        for acknowledgment in (False, None, 1, 'true'):
+            self.assert_error(self.decision(result, acknowledge_access_loss=acknowledgment), 400)
+        self.assertEqual(self.decision(result, acknowledge_access_loss=True)[0], 200)
+
+    def test_failed_apply_does_not_publish_partial_artifacts(self):
+        result = self.analyze_laps()
+        before_dirs = set(self.output.iterdir())
+        before_downloads = dict(self.server.downloads)
+        def fail_after_write(path, out, *args, **kwargs):
+            out.mkdir()
+            (out / 'cleaned.gpx').write_text('partial', encoding='utf-8')
+            raise web_app.route_plans.PlanError('Cannot publish output files')
+        with mock.patch.object(web_app.route_plans, 'apply', side_effect=fail_after_write):
+            self.assert_error(self.decision(result), 400)
+        self.assertEqual(set(self.output.iterdir()), before_dirs)
+        self.assertEqual(self.server.downloads, before_downloads)
+
+    def test_apply_rejects_changed_source_and_expiry(self):
+        result = self.analyze_laps()
+        path = self.folder / '路线.GPX'
+        path.write_bytes(path.read_bytes() + b'\n')
+        self.assert_error(self.decision(result), 409)
+        self.server.analyses[result['analysis_id']]['created'] -= web_app.ANALYSIS_TTL_SECONDS + 1
+        self.assert_error(self.decision(result), 409)
+
+    def test_apply_blocks_missing_or_unsafe_candidate(self):
+        result = self.run_route()[2]
+        self.assert_error(self.request('POST', '/api/apply', {'analysis_id': result['analysis_id']}), 409)
+        result = self.analyze_laps()
+        stored = self.server.analyses[result['analysis_id']]['analysis']
+        stored['candidate']['blocked_reasons'].append('测试：禁止转换')
+        self.assert_error(self.decision(result), 409)
+
+    def test_admission_precedes_source_read(self):
+        entry = self.files()[2]['files'][0]
+        self.server.run_lock.acquire()
+        try:
+            with mock.patch.object(self.server, 'read_source', side_effect=AssertionError('must not read')):
+                self.assert_error(self.request('POST', '/api/analyze', {'file_id': entry['id']}), 429)
+        finally:
+            self.server.run_lock.release()
+
+    def test_analysis_retention_is_bounded(self):
+        entry = self.files()[2]['files'][0]
+        with mock.patch.object(web_app, 'MAX_ANALYSES', 2):
+            for _ in range(3):
+                self.assertEqual(self.request('POST', '/api/analyze', {'file_id': entry['id']})[0], 200)
+            self.assertLessEqual(len(self.server.analyses), 2)
 
     def test_bind_and_cli_reject_nonloopback(self):
         for host in ("0.0.0.0", "192.168.1.1", "example.com", "::", "::1"):
