@@ -1,0 +1,241 @@
+<title>GPX 路线完整方案</title>
+<meta content="cover" name="claude:viewport-fit-sides"/>
+<style>
+/* 单列评审正文，左侧目录；表格仅在自身容器内滚动。 */
+:root{--bg:#f0f4f6;--surface:#ffffff;--ink:#203640;--muted:#526873;--accent:#235e73;--line:#cbd8de;--body-font:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;--code-font:Consolas,monospace;color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16252d;--surface:#20333d;--ink:#e7eff2;--muted:#b4c7d0;--accent:#9dcedf;--line:#49616d;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#16252d;--surface:#20333d;--ink:#e7eff2;--muted:#b4c7d0;--accent:#9dcedf;--line:#49616d;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 var(--body-font)}.shell{max-width:1440px;margin:auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 72px;display:grid;grid-template-columns:210px minmax(0,1fr);gap:40px}aside{align-self:start;position:sticky;top:24px;font-size:13px;max-height:90vh;overflow:auto}aside strong{display:block;margin-bottom:12px}nav{display:grid;gap:7px}a{color:var(--accent);text-underline-offset:4px}nav a{text-decoration:none}a:hover{text-decoration:underline}a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}main{min-width:0;max-width:1080px;background:var(--surface);padding:clamp(20px,4vw,56px);border:1px solid var(--line)}header{padding-bottom:28px;border-bottom:3px solid var(--accent)}h1,h2,h3{line-height:1.4;text-wrap:balance;font-weight:650}h1{font-size:clamp(27px,3vw,39px);margin:8px 0 16px}h2{font-size:25px;margin:0 0 18px}h3{font-size:18px;margin:25px 0 10px}p{margin:12px 0}header p{max-width:68ch}.meta,.note,caption{color:var(--muted);font-size:14px}.lead{font-size:18px}.status{color:var(--accent);font-weight:650}section{padding-block:32px;border-bottom:1px solid var(--line);scroll-margin-top:20px}section:last-child{border:0}ul,ol{padding-left:1.5em;margin:12px 0}li+li{margin-top:6px}.callout{border-left:4px solid var(--accent);padding:12px 18px;background:var(--bg);margin:20px 0}.callout p:first-child{margin-top:0}.callout p:last-child{margin-bottom:0}.table-wrap{overflow-x:auto;max-width:100%;margin:18px 0;border:1px solid var(--line)}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.7;min-width:650px}caption{text-align:left;padding:12px}th,td{padding:11px 13px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:var(--bg);font-weight:650}tbody tr:last-child td{border-bottom:0}code{font:0.9em/1.7 var(--code-font);overflow-wrap:anywhere}pre{max-width:100%;overflow:auto;border:1px solid var(--line);padding:18px;background:var(--bg);font:13px/1.75 var(--code-font)}pre code{font:inherit;overflow-wrap:normal}.checklist{list-style:none;padding-left:0}.checklist li{padding:8px 0;border-bottom:1px solid var(--line)}footer{font-size:13px;color:var(--muted);padding-top:28px}.nowrap{white-space:nowrap}@media(max-width:1050px){.shell{grid-template-columns:minmax(0,1fr);gap:24px}aside{position:static;max-height:none}nav{display:flex;flex-wrap:wrap;gap:8px 18px}main{max-width:none}}@media(max-width:520px){.shell{padding-block:20px 40px}main{padding:20px 16px}section{padding-block:26px}h2{font-size:22px}body{font-size:15px}table{font-size:13px}}
+</style>
+<div class="shell">
+<aside aria-label="方案目录"><strong>GPX 路线处理</strong><nav><a href="#baseline">当前实现和测试结果</a><a href="#problems">问题与具体方案</a><a href="#model">轨迹、拓扑与通行模型</a><a href="#topologies">不同路线结构如何处理</a><a href="#architecture">模块划分与处理流程</a><a href="#algorithms">算法实现</a><a href="#safety">转换约束与结果校验</a><a href="#contracts">接口与数据结构</a><a href="#experience">页面交互与结果展示</a><a href="#operations">资源控制与本地运行</a><a href="#evaluation">测试数据与指标</a><a href="#delivery">实现顺序</a><a href="#evidence">代码和测试依据</a></nav></aside>
+<main>
+<header><h1>GPX 路线处理方案</h1><p class="lead">现状、已知问题、处理方法与实现顺序</p><p class="meta">方案历史基线：<code>05b1578</code>　｜　初稿：2026-11-13　｜　归档说明：2026-11-16</p><div class="callout"><p><strong>版本与实施状态：</strong>正文保留 <code>05b1578</code> 的问题分析、历史评测及目标架构，不是当前功能清单。后续 P0 已在 <code>dab608c</code> 实现默认仅分析、目标及风险确认、输入与完整计划摘要核验、保守几何阻止、制品清单和扫描解锁修复。当前接口增加 <code>/api/analyze</code>、<code>/api/apply</code>，<code>/api/run</code> 已改为仅分析别名；准入锁在读取快照前获取。</p><p>后续联合回归为 70 项（69 通过、1 项私有样本缺失跳过），24 个纯往返与 24 个平行接入合成负例均无可执行裁切；不代表真实成功率，保守规则也可能拒绝有效路线。正文的 352 样本表仍是 legacy 基线，新增 <code>/api/v2</code>、SQLite 作业、进程硬预算、图重构、真实标注手册与地图能力仍为规划。当前能力及限制以仓库 README 为准。</p></div></header>
+<section id="baseline">
+<h2>一、当前实现和测试结果</h2>
+<h3>3.1 已实现基线</h3>
+<p>算法为 Python + NumPy / SciPy <code>cKDTree</code> + pyproj；用局部 UTM 投影、10 米等弧长采样及方向约束匹配。当前只接受一个 <code>trkseg</code>，至少三个点。先尝试首尾连续反向匹配的主体环裁切，再尝试 2–6 圈完整近似等长的同向重复圈。</p>
+<p>本地网页已有文件夹列表、文件搜索、半径设置、并排/叠加、同步缩放平移、坐标检查、主题和 GPX / GeoJSON / JSON 下载。HTTP 服务绑定回环地址，源文件只读，每次运行独立输出。导出不保留原时间戳。现有 HTTP 请求同步处理，算法运行由锁串行化；尚无持久作业队列、进程内存上限或通用拓扑图。</p>
+<h3>3.2 可复现的合成基线</h3>
+<p>352 个样本由 44 个几何变体 × 4 档坐标噪声 × 2 个种子构成。噪声为逐观测点独立的 x/y 高斯扰动，σ = 0、1、3、8 米。零噪声的两个种子是重复对照，不是两个独立事实；所有样本也不是独立真实路线。表中分母均为指定样本族，不能外推到线上成功概率。</p>
+<div class="table-wrap"><table><caption>已有验证；“安全保留”不代表识别出了该拓扑。</caption><thead><tr><th>样本族</th><th>样本数</th><th>正类检测满足契约</th><th>正确动作 / 安全保留</th><th>关键解释</th></tr></thead><tbody>
+<tr><td>开放单程</td><td>24</td><td>不适用</td><td>24/24 保留</td><td>没有通用单程分类器</td></tr>
+<tr><td>单一圆环</td><td>24</td><td>不适用</td><td>24/24 保留</td><td>保留不等于环识别准确率</td></tr>
+<tr><td>同向完整 2–6 圈</td><td>120</td><td>65/120（54.17%）</td><td>65/120（54.17%）</td><td>σ=0/1/3/8 米分别 30/30、30/30、5/30、0/30</td></tr>
+<tr><td>周长 400 米圆形重复圈</td><td>40</td><td>3/40（7.5%）</td><td>3/40（7.5%）</td><td>不是体育场椭圆；共 11 次裁切，仅 3 次正确</td></tr>
+<tr><td>等长接入尾巴 + 方形环</td><td>24</td><td>24/24（100%）</td><td>21/24（87.5%）</td><td>识别与正确输出不同</td></tr>
+<tr><td>迟起重叠、不等长接入</td><td>24</td><td>20/24（83.33%）</td><td>19/24（79.17%）</td><td>σ=8 米时仅 1/6 正确处理</td></tr>
+<tr><td>直线纯往返</td><td>24</td><td>不适用</td><td>15/24 保留</td><td>9/24 被误裁</td></tr>
+<tr><td>环中内部回头支路</td><td>24</td><td>不适用</td><td>24/24 保留</td><td>尚不会自动删枝</td></tr>
+<tr><td>8 字形</td><td>24</td><td>不适用</td><td>24/24 保留</td><td>尚不会自动拆分双环</td></tr>
+<tr><td>相邻但不同的平行接入路</td><td>24</td><td>不适用</td><td>16/24 保留</td><td>10 米间隔的 8/8 样本全部误裁；25/50 米间隔均保留</td></tr>
+</tbody></table></div>
+<p>正确转换不只看方法名称：还检查预期检测类型与圈数、输出闭合、对理想主体的双向采样几何距离 ≤30 米，以及长度误差 ≤max(60 米, 5%)。长度参照使用含噪观测的相应圈/主体长度，不要求算法去噪。负例要求方法不变且输入输出坐标完全一致。脚本退出 0 只表示运行完成，本轮执行异常为 0，不表示全部样本通过。</p>
+<h3>3.3 实例能证明什么</h3>
+<p>一个本地问题样本经修复后，行程约从 58.021 km 缩为 49.166 km，减少 8.856 km；单侧连续反向匹配约 3.310 km，所裁首尾行程中约 2.241 km 没有反向匹配证据。这证明该样本的主体环裁切已触发，<strong>不证明减少的全部长度都是重复道路，也不证明保留了全部独有道路</strong>。本文不附私有坐标、源目录和原始文件。</p>
+<h3>3.4 必须优先解决的缺口</h3>
+<ol><li>几何近邻导致平行路误合并；纯往返在噪声下可能被当成尾巴 + 环。</li><li>圈检测依赖整段等分，默认单圈最小 450 米；短圈、残圈、方向切换无可靠支持。</li><li>仅两类整体裁切启发式，缺少内部重复、多分叉、组合拓扑和冲突关系。</li><li>没有真实标注集和概率校准；70%、85% 等规则是阈值，不是成功概率。</li><li>文件字节上限不能约束候选数量、计算时间和内存；<code>overlap_stats</code> 仍存在密集点对增长风险。</li></ol>
+</section><section id="problems"><h2>二、问题与具体方案</h2>
+<p>不再把整条路线直接分成固定类型并裁切。先找出重叠区间及其通行方向，再组合成往返、环、支路等结构；根据目标生成保留或删除计划，最后验证输出是否连续、是否丢失独有路段。</p>
+<div class="table-wrap"><table><thead><tr><th>当前问题</th><th>具体处理方案</th><th>解决内容</th></tr></thead><tbody>
+<tr><td>10 米左右的平行道路被当成重复道路</td><td>空间近邻只用于产生候选；增加同/反向区间的有序对齐，检查两端连接、横向偏离、候选竞争与道路身份歧义；无可靠证据时保留两条边</td><td>降低平行路、立交、邻近小路的误合并</td></tr>
+<tr><td>纯往返在噪声下被误判成“接入尾巴 + 环”</td><td>单独识别去程和返程的反向匹配，要求裁切后确实存在非退化闭合环；纯往返输出“保留原轨迹”或经选择的去程/返程</td><td>避免把往返路线误裁成假环</td></tr>
+<tr><td>重复圈依赖等长切分，噪声和不完整圈下漏检</td><td>以返回锚点事件寻找周期，做允许速度变化的有序区间对齐，检查最小基本周期；残圈作为独立剩余区间</td><td>识别不同速度的重复圈、部分圈及混合方向</td></tr>
+<tr><td>只处理首尾和完整重复圈，不处理内部折返或多环</td><td>建立观测多重图与原始通行序列，检测支路、相接环、8 字、共享走廊；允许多个结构同时出现</td><td>覆盖内部重复、分叉以及组合路线</td></tr>
+<tr><td>缩短的距离混杂了重复删除与独有路段删除</td><td>对每个保留/删除区间记录原始索引和匹配证据，分别统计匹配支持的删除量、独有覆盖损失、边界调整和连接变化</td><td>明确到底删掉了什么，而不是只显示路线变短多少</td></tr>
+<tr><td>“去重”含义不明确，不同目标可能冲突</td><td>拆分为仅分析、保留主体环、保留单程、保留一圈、简化支路、导出唯一路段图、生成连续行程；各模式独立约束</td><td>避免为追求无重复而错误闭环、删枝或产生断线</td></tr>
+<tr><td>几何相交或端点靠近可能被误认为道路连通</td><td>二维交点仅为候选；节点需连接证据，桥隧和平行边用多重图保留；不自动跨缺口补直线</td><td>避免不存在的连接与错误拓扑</td></tr>
+<tr><td>处理过程无明确资源边界，异常输入可能使计算膨胀</td><td>候选对、动态规划单元、点数、时间与内存分别设限；算法进程隔离，超限直接标记分析不完整</td><td>防止密集轨迹造成耗时和内存失控</td></tr>
+<tr><td>算法检测到就直接裁切，缺乏独立验证</td><td>分析→候选计划→查看影响→确认→独立校验→导出；输入哈希和计划版本绑定，转换失败不产生成功文件</td><td>控制误删，保证结果可追溯和可复现</td></tr>
+<tr><td>合成集可运行，但缺少真实路线证据</td><td>保留 352 样本做回归，增加按原始路线分组的真实标注集、困难负例和独立留出测试；同时统计正确率与覆盖率</td><td>避免用有限合成样本代表真实效果</td></tr>
+</tbody></table></div></section>
+<section id="model">
+<h2>三、轨迹、拓扑与通行模型</h2>
+<p><strong>几何</strong>是坐标；<strong>拓扑</strong>是连接关系；<strong>通行序列</strong>是用户按时间或点序走过哪些边、走过几次及方向。三者必须分开建模。一个轨迹可以同时包含尾巴、多个环和内部支路，不使用互斥的 12 分类标签强行归类。</p>
+<ul><li><strong>原始轨迹 T：</strong>保留原点索引、段 ID、经纬度和可用的时间/高程；不跨段建立默认连接。</li><li><strong>匹配假设 H：</strong>两个弧长区间的候选对应，包含同/反向、距离分布、覆盖、单调性、备选匹配及冲突。</li><li><strong>观测图 G：</strong>节点是经证据支持的连接位置；边代表候选道路片段，采用多重图保留平行边；空间交叉先是候选而非自动路口。</li><li><strong>通行序列 W：</strong>按原顺序记录 edge_id、方向、原始区间和重复次数；与“只存每条边一次”的图分离。</li><li><strong>处理计划 P：</strong>绑定目的、保留/删除区间、边界修整、必要重复与用户决策。执行器只执行通过验证的计划。</li></ul>
+<div class="callout"><p><strong>不可同时满足的条件：</strong>在连通无向图中，每条边恰好一次的单条行程要求奇度节点为 0 或 2；要求闭合时必须为 0。树枝去到端点再返回必然重复。单行、转向限制或图不连通会增加约束，不能仅靠欧拉条件就宣称可导航。</p></div>
+<p>本方案在没有地图证据时输出的是<strong>观测几何图</strong>，不是已确认的真实道路网络。即使有地图匹配，数据缺漏、时效和法规也使“已做道路约束校验”不等于保证现场安全可通行。</p>
+</section>
+<section id="topologies">
+<h2>四、不同路线结构如何处理</h2>
+<p>下表为<strong>目标处理方式</strong>。前后序列只解释处理意图，字母表示节点、括号表示子行程，不是当前算法输出承诺。难度描述的是证据充分时的相对可判定性，不是统计概率。</p>
+<div class="table-wrap"><table><thead><tr><th>结构</th><th>识别证据与相对难度</th><th>候选处理 / 前后对比</th><th>风险与默认行为</th></tr></thead><tbody>
+<tr><td>开放单程</td><td>无持续重复、端点分离；几何清晰时较易</td><td>A–B–C 保持 A–B–C</td><td>“未检出”单独报告；不强制闭环</td></tr>
+<tr><td>单环</td><td>一次回归、主体连续，无可靠重复；较易</td><td>A–B–C–A 保持；仅标记闭合状态</td><td>近起点不等于可补线闭合</td></tr>
+<tr><td>纯往返</td><td>两个长区间反向对应，折返点与唯一覆盖一致；噪声下中等</td><td>A–B–C–B–A → A–B–C（单程模式）</td><td>不再称闭环；默认保留，用户选择去程或返程</td></tr>
+<tr><td>尾巴 + 环</td><td>反向接入链 + 非退化独立环；较易至中等</td><td>S–J–A–B–J–S → J–A–B–J</td><td>删去接入路是目标性裁切，须确认</td></tr>
+<tr><td>不等长 / 迟起重叠接入</td><td>局部匹配不能解释两侧全部行程；中等至难</td><td>S–J–(环)–J–T → (环)</td><td>单列独有接入损失，不靠一个覆盖比自动授权</td></tr>
+<tr><td>完整同向重复圈</td><td>多次返回同锚点、局部相位对应、方向一致；干净时较易</td><td>(A–B–C–A) × k → 一圈</td><td>圈数与最小基本周期须同时正确</td></tr>
+<tr><td>残圈 / 变速 / 混向圈</td><td>变长序列对齐、重复闭合子行程、剩余片段；难</td><td>两整圈 + A–B → 一整圈；余段另列</td><td>不把余段静默当冗余；混向分别列候选</td></tr>
+<tr><td>内部回头支路</td><td>从同接点离开又原路返回的链，主路径仍连通；中等</td><td>A–J–D–J–B → A–J–B</td><td>D 是独有覆盖；删枝不是保留全部道路的去重</td></tr>
+<tr><td>8 字 / 相接双环</td><td>共享连接点、两个闭合子行程；连接层级不明时难</td><td>J–A–J–B–J → 保留双环或分别输出</td><td>默认不随意选一个“最大环”</td></tr>
+<tr><td>共享走廊 / 多分叉路网</td><td>多段对应、重复边计数、连通分量和冲突；难</td><td>通行序列 → 唯一路段图；另求连续行程</td><td>图可能不能无重复一笔走完</td></tr>
+<tr><td>平行路 / 立交 / 桥隧</td><td>接近但可能不同路；仅二维 GPX 常不可辨</td><td>默认保留两条观测边；地图或人工确认后再合并</td><td>不得靠半径或二维交点决定道路身份</td></tr>
+<tr><td>断段 / 漂移 / 跳点</td><td>段边界、异常距离、可用时间下的速度、精度信息；难</td><td>保留分段，异常标记；修复形成独立提案</td><td>不跨缺口补直线，不伪造缺失记录</td></tr>
+</tbody></table></div>
+<p>例：路线“尾巴 + 双环 + 内部分支”应输出多个 motif 及相互区间关系，不是一个最终标签。主体环有多个合理候选时，排序规则只能辅助展示，不能替用户决定删掉哪一个环。</p>
+</section>
+<section id="architecture">
+<h2>五、模块划分与处理流程</h2>
+<p>保持现有本地工作台，逐步将算法拆成独立可测试模块；不为本地单用户场景引入微服务、云数据库或默认在线服务。采用<strong>本地 API + SQLite 作业状态 + 隔离算法进程 + 文件制品库</strong>。</p>
+<ol><li><strong>导入与快照：</strong>复用源路径安全检查，创建有界只读快照和 SHA-256；入库作业只保存受控文件标识，不向浏览器暴露任意输出路径。</li><li><strong>质量与归一化：</strong>验证坐标、段数、点数和跨度；建立原始点到弧长采样点的映射，不修改原始数据。</li><li><strong>候选匹配：</strong>空间检索 + 有序区间对齐，产出证据与冲突，受全局预算限制。</li><li><strong>拓扑分析：</strong>从可靠对应建立观测多重图和通行序列，组合识别往返、环、支路等 motif。</li><li><strong>计划生成：</strong>依据用户目标枚举有限候选，计算独有覆盖代价、连续性与规则冲突；不能满足时返回原因。</li><li><strong>预览与确认：</strong>用户按候选范围接受/拒绝；决策绑定输入、配置、候选版本。</li><li><strong>验证与导出：</strong>独立验证器检查不变量，原子发布制品，输出 manifest 与审计报告。</li></ol>
+<div class="table-wrap"><table><thead><tr><th>模块</th><th>职责</th><th>与现代码关系</th></tr></thead><tbody>
+<tr><td><code>io_gpx / quality</code></td><td>解析、校验、原始快照、原索引映射</td><td>从 load_gpx / write_gpx 拆分并扩充</td></tr>
+<tr><td><code>matching / motifs</code></td><td>有界候选、对齐、组合模式识别</td><td>当前尾巴/圈启发式作为兼容候选生成器</td></tr>
+<tr><td><code>graph_model</code></td><td>边、节点、通行、未决连接与冲突</td><td>新增；允许引入 Shapely / NetworkX，先用测试验证必要性</td></tr>
+<tr><td><code>planner / validator</code></td><td>按目的生成计划、独立检查与证据审计</td><td>替代 run 中“检测即裁切”的紧耦合</td></tr>
+<tr><td><code>jobs / artifacts</code></td><td>SQLite 状态机、子进程生命周期、取消、限额、清理</td><td>替代长 HTTP 请求；不在请求线程执行重计算</td></tr>
+<tr><td><code>web</code></td><td>保留对比交互，增加目标、证据、代价和确认</td><td>在现有两页面基础上增量迭代</td></tr>
+</tbody></table></div>
+<p>SQLite 仅保存作业元数据、版本与决策。坐标、图和导出保存在受控本地目录，避免把大数组写进状态表。图对象不直接暴露内部 Python 序列化格式，使用版本化 JSON / GeoJSON。</p>
+</section>
+<section id="algorithms">
+<h2>六、算法实现</h2>
+<h3>7.1 输入质量与多尺度采样</h3>
+<ul><li>保留原始坐标作为事实层；重复点、跳点、缺失字段仅作标记。需要去噪时生成辅助表示，并记录参数和变更量。</li><li>首期沿用单段输入约束，新增多段感知但不跨段匹配/连接；完整多段处理单独验收。</li><li>局部投影仅用于适合的区域跨度；跨日期变更线、极区、大跨度路线先拒绝转换或进入经专项验证的分块测地模式，不继续套用单一 UTM。</li><li>粗尺度用于发现候选、细尺度确认边界。采样间隔和最短重复长度分离配置；短圈模式另建 400 米以下对照，不能简单把全部门槛调低。</li><li>方向在弧长窗口内估计；停止/转折附近标记低可靠方向，不能用单点切向量强行过滤。</li></ul>
+<h3>7.2 有序路段匹配，而非孤立近邻</h3>
+<ol><li>对空间块或线段包围盒建立索引，按批次检索可能相近的轨迹区间；排除紧邻采样造成的自然相近。</li><li>按同向/反向分别形成匹配种子，保持两个弧长参数近似单调；使用有带宽、长度和候选预算限制的动态规划/局部序列对齐。</li><li>验证横向偏差、p50/p90 距离、双向覆盖、缺口分布、方向一致性、序列拉伸和匹配唯一性；必要时用带界的离散 Fréchet 检查候选，避免对全轨迹做全矩阵。</li><li>比较最优与次优候选并保留冲突；不能把沿路缓慢漂移与邻近的另一条路可靠区分时，标记道路身份未知。</li><li>输出不超过预算的候选集合及截断状态。预算耗尽返回 <code>analysis_incomplete</code>，禁止依赖残缺候选作自动删除。</li></ol>
+<p>距离、方向、覆盖等首先是<strong>证据字段</strong>，不是置信概率。可显示“证据充分 / 有歧义 / 不足”的规则状态并解释原因；在真实留出集上校准前，不显示“成功率 95%”。</p>
+<h3>7.3 噪声与平行路的特殊防护</h3>
+<p>不通过持续扩大半径“治好”噪声，因为这会扩大误合并。精度字段（如存在）可用于提示不确定范围，但不是道路身份凭证。稳定横向分离、两端不同连接、竞争匹配或缺失道路证据时，不自动合并。高程仅作辅证，不能单独确认桥隧。若误差范围已覆盖两条可能的路，算法应承认不可辨。</p>
+<h3>7.4 观测图构建与连接确认</h3>
+<p>仅在匹配边界、明确通行衔接和经证据支持的接点处切分。Shapely 的二维交点只能生成候选；不因投影线交叉就建立可通行路口。NetworkX MultiGraph 可用于保留平行边、求连通分量和检查度数，但图工具本身不会识别真实道路。</p>
+<p>合并优先采用可追溯的代表观测几何，不对两侧平行道路直接取均值。聚类必须检查簇内一致性，防止 A 接近 B、B 接近 C 就把相距较远的 A/C 传递合并。图上每条边可回溯到所有原始通行区间。</p>
+<h3>7.5 重复圈与组合 motif</h3>
+<ul><li><strong>重复圈：</strong>用返回同一锚点的事件和区间匹配提出周期，允许圈速/采样密度不同；验证最小基本周期而非只接受一个能整除总长的大周期。</li><li><strong>纯往返与尾巴 + 环：</strong>分别验证转折后的反向路径，以及保留中段是否包含真实的非退化环证据。仅“裁后首尾很近”不足以认定有环。</li><li><strong>残圈/混向：</strong>先分出闭合子行程，剩余片段独立展示；同向和反向通行分组，不用总长等分强行解释。</li><li><strong>内部支路：</strong>识别离开/返回同接点的反向链，再验证移除后主行程连续；明确其独有覆盖损失。</li><li><strong>组合结构：</strong>motif 可嵌套或共享边；冲突计划互斥。限制候选计划数，不进行任意子集指数级穷举。</li></ul>
+<h3>7.6 按目标规划</h3>
+<p>主体环先枚举少量有证据的闭合子行程，按独有覆盖、连续性和用户指定起终点排序，不能默认为面积最大。单程保留完整去程或返程之一，不通过删掉两端凑闭环。一圈优先保留一个真实完整观测圈，保留时间元数据的原始关联但不伪造新的运动时间线。</p>
+<p>唯一路段模式输出多重图与分段线集合。连续行程模式先尝试保留原始通行顺序的可验证简化；后续才在明确无向、连通且无转向约束的子问题上采用开放/闭合邮差路线算法。缺少方向/通行规则时不能把该解标为导航路线；有向及受限问题超出首期范围。</p>
+<h3>7.7 可选地图匹配</h3>
+<p>只有用户单独同意后，才接入本地 OSM 数据或指定 GraphHopper 等引擎；优先本地运行。保存地图快照日期、引擎版本、交通方式、候选与偏离，不把强制吸附结果当成真值。在线调用须列明服务商、发送范围、缓存和日志策略；没有授权时绝不发送坐标。地图匹配失败不能退化为静默几何合并。</p>
+</section>
+<section id="safety">
+<h2>七、转换约束与结果校验</h2>
+<h3>8.1 三类决策，不混淆“拒绝”与“失败”</h3>
+<div class="table-wrap"><table><thead><tr><th>状态</th><th>进入条件</th><th>允许动作</th></tr></thead><tbody>
+<tr><td>可预览候选</td><td>分析完整、证据与几何约束通过、无未决冲突</td><td>展示候选；首发仍需用户确认才导出转换结果</td></tr>
+<tr><td>需要人工核对</td><td>多个候选、可能不同路、拟删除独有接入或内部支路</td><td>显示疑点及代价；允许目标性裁切，但不把歧义登记成已证实道路相同</td></tr>
+<tr><td>禁止转换 / 分析不完整</td><td>超限、无效输入、缺口无法接续、关键验证失败</td><td>保留原始文件；返回原因与可采取动作，不能用普通确认绕过硬约束</td></tr>
+</tbody></table></div>
+<h3>8.2 执行前后不变量</h3>
+<ul><li><strong>不改源：</strong>输入快照哈希一致；源文件不写入。计划所引用的输入、参数或分析版本变化即失效。</li><li><strong>可溯源：</strong>每段输出指向原轨迹区间；任何新增连接与边界修整必须独立记录。无法解释的点或线段禁止导出。</li><li><strong>不跨缺口：</strong>距离小不代表有路。优先在已验证匹配区间选择共同切点；首期不自动补未知连接。手工允许的连接仍标“未验证”，不得计为已有道路。</li><li><strong>按目标守覆盖：</strong>保留唯一路段模式的独有覆盖损失必须为 0；主体环/删枝模式的损失必须与明确选择的区间一致。</li><li><strong>不虚报闭合：</strong>端点近似闭合与真实连接分开；不通过无说明的中点吸附将开放路线变成“已验证闭环”。</li><li><strong>失败封闭：</strong>验证失败不发布成功制品、不留下可下载的半文件；保留失败原因与受控诊断，不泄漏源路径。</li></ul>
+<h3>8.3 长度与影响口径</h3>
+<p>报告分开统计：输入/输出行程长度、经匹配支持的重复通行删除量、目标性删除的独有/未证实重复行程、新增连接长度、边界修整的长度变化及未分类差额。要求在容差内对账。唯一图的边覆盖长度另算，不能与行程长度混用。空间容差覆盖率只是几何指标，不是道路身份真值。</p>
+</section>
+<section id="contracts">
+<h2>八、接口与数据结构</h2>
+<p><strong>现有接口：</strong><code>GET /api/config</code>、<code>POST /api/files</code>、<code>POST /api/run</code>、<code>GET /api/download/{run_id}/{kind}</code>。以下 <code>/api/v2</code> 为新设计，未实现；旧接口保留兼容，后续在 UI 中默认禁用旧式直接转换入口。</p>
+<div class="table-wrap"><table><thead><tr><th>接口</th><th>语义</th><th>关键约束</th></tr></thead><tbody>
+<tr><td>POST /api/v2/jobs</td><td>用 file_id、goal、config 创建分析作业；202 返回 job_id</td><td>有界快照；幂等键绑定输入哈希与配置</td></tr>
+<tr><td>GET /api/v2/jobs/{id}</td><td>状态、阶段、预算、摘要与制品索引</td><td>不重复返回全部坐标；错误码稳定</td></tr>
+<tr><td>POST /api/v2/jobs/{id}/cancel</td><td>请求取消，终止整个算法进程树</td><td>取消与完成竞态原子处理</td></tr>
+<tr><td>GET /api/v2/jobs/{id}/candidates</td><td>分页候选与证据；几何通过受控制品读取</td><td>完整性标志、候选版本、冲突列表</td></tr>
+<tr><td>POST /api/v2/jobs/{id}/decisions</td><td>保存逐候选接受/拒绝与目标性删除授权</td><td>版本不匹配 409；不接受任意坐标/文件路径作为计划</td></tr>
+<tr><td>POST /api/v2/jobs/{id}/exports</td><td>冻结计划，执行验证并生成导出子作业；202</td><td>独立 export_id；同一决策可复现，不覆盖已有制品</td></tr>
+<tr><td>GET /api/v2/artifacts/{id}</td><td>下载已发布、白名单注册的制品</td><td>不得以路径参数直读磁盘</td></tr>
+</tbody></table></div>
+<p>分析状态：<code>queued → running → succeeded | incomplete | failed | cancelled | timed_out | resource_exceeded</code>。分析成功不等于允许转换。导出子作业另有 <code>queued → validating → exporting → succeeded | failed | cancelled</code>；每个终态都有结构化原因。服务重启后未完成的作业标记中断，不宣称仍运行；初期不自动恢复中间计算。</p>
+<h3>9.1 数据对象最小字段</h3>
+<div class="table-wrap"><table><thead><tr><th>对象</th><th>必需字段</th></tr></thead><tbody>
+<tr><td>InputSnapshot</td><td>sha256、字节/点/段数、坐标范围、质量标记、原始字段可用性</td></tr>
+<tr><td>AnalysisManifest</td><td>schema_version、算法/依赖版本、完整配置、输入哈希、预算消耗、analysis_complete、警告</td></tr>
+<tr><td>MatchEvidence</td><td>稳定 evidence_id、两个原段/弧长区间、方向、距离分位数、覆盖、缺口、单调性、竞争匹配、拒绝原因</td></tr>
+<tr><td>Graph / Traversal</td><td>nodes、multiedges、连接证据/未知层级、source_ranges；按序的 edge_id 和方向</td></tr>
+<tr><td>CandidatePlan</td><td>goal、motif_ids、保留/删除区间、接续/修整、覆盖影响、约束检查、冲突、plan_digest</td></tr>
+<tr><td>Decision / ExportManifest</td><td>输入/分析/计划摘要、逐候选决定、独有覆盖删除授权、导出版本、文件哈希、验证结果、道路约束核验状态</td></tr>
+</tbody></table></div>
+<p>所有距离注明米，坐标注明 WGS84 经度在前；投影 EPSG 与变换版本写入报告。区间采用明确的端点包含规则，边界插值点保存原线段索引和比例。schema_version 与算法版本独立；缺失必需字段或未知主版本拒绝执行。日志中的 run/job ID 不包含文件名或坐标。</p>
+<h3>9.2 导出清单</h3>
+<ul><li><code>original.gpx</code>：可选的原始快照副本；与转换输出明确分离。</li><li><code>selected-route.gpx</code>：选定的有序行程，仅在可表示为连续路径时输出单段。分段保留则显式多个 trkseg，不硬拼接。</li><li><code>unique-edges.geojson</code>：唯一路段与图属性；必要时另附图 JSON，不以一条折线冒充整个网络。</li><li><code>evidence.geojson</code>、<code>report.json</code>、<code>manifest.json</code>：证据、决策、验证与文件校验和。</li><li>转换 GPX 不伪造时间；高程缺失保持缺失，插值标明来源。不能逐点保留的扩展字段列出清单，禁止声称无损转换。</li></ul>
+</section>
+<section id="experience">
+<h2>九、页面交互与结果展示</h2>
+<ol><li><strong>选文件：</strong>保留本地目录与文件过滤；显示输入能力限制和原始字段。</li><li><strong>选目的：</strong>默认“仅分析”；每个模式用一句话说明允许删除什么、是否保证闭合。</li><li><strong>看结构：</strong>展示可组合的 motif、证据范围与分析完整性；未知结构也可正常显示，不硬给标签。</li><li><strong>看候选：</strong>沿原始弧长定位，分别标出保留、删除、未匹配删除、疑似平行路和连接；线型/文字与颜色共同编码。</li><li><strong>核对代价：</strong>显示独有覆盖变化、起终点变化、是否丢失残圈/分支、是否还存在必要重复。</li><li><strong>确认导出：</strong>计划摘要与输入绑定；风险区间必须可定位。验证通过后才出现转换下载链接。</li></ol>
+<p>失败文案区分“未发现候选”“存在歧义”“超出计算预算”“几何接续不成立”和“道路规则未核验”。不把 <code>unchanged</code> 写成“识别成功，无重复”；不将人工接受写成“算法证实道路相同”。首发不新增需要外网底图的依赖。</p>
+</section>
+<section id="operations">
+<h2>十、资源控制与本地运行</h2>
+<h3>11.1 现有与新增限制</h3>
+<p>已实现：16 KiB 请求体、50 MiB GPX、目录最多返回 2,000 项；路径重检、符号链接/目录联接拒绝、DTD/实体声明拒绝、有效有限经纬度校验、Host/Origin 检查、受控下载。现代码可能在等待运行锁前读取文件快照，因此算法串行不代表并发请求的内存受控。</p>
+<p>以下是<strong>第一轮压测起点，未验证为可达性能</strong>。限制必须配置化，发布前按实际机器校准，不把 50 MiB 可读等同于 50 MiB 可分析。</p>
+<div class="table-wrap"><table><thead><tr><th>资源</th><th>初始预算（待压测）</th><th>超限策略</th></tr></thead><tbody>
+<tr><td>并发与排队</td><td>1 个算法 worker；最多 4 个待执行作业</td><td>先获取准入再读快照；队满返回 429，提示重试</td></tr>
+<tr><td>解析规模</td><td>最多 200,000 原始点；采样点最多 100,000</td><td>明确拒绝转换；不静默降采样后作删除决策</td></tr>
+<tr><td>匹配搜索</td><td>累计候选点对 2,000,000；对齐单元累计 5,000,000；最多 100 个 motif、20 个计划</td><td>完整性标记为 false；保留原始，不自动导出转换</td></tr>
+<tr><td>时间与内存</td><td>单分析 120 秒；worker 进程树 512 MiB</td><td>监管进程终止，记录 timed_out / resource_exceeded</td></tr>
+<tr><td>制品与磁盘</td><td>单作业 200 MiB，总额 2 GiB；临时失败目录及时清理</td><td>写前配额检查；禁止挤满磁盘，未完成文件不发布</td></tr>
+<tr><td>保留周期</td><td>成功制品 7 天，可锁定本地保留</td><td>到期按用户可见策略清理；不自动删除源文件</td></tr>
+</tbody></table></div>
+<p>Windows 优先使用 Job Object 对整个进程树施加内存与退出约束；Linux 使用可用的 cgroup 等机制。不能建立或实测隔离时，不宣称资源硬上限成立，也不开放高成本转换。取消、超限、异常退出都要有集成测试。SQLite 作业状态与制品先写临时目录，再原子 rename 与登记，防止半成品可见。</p>
+<h3>11.2 本地服务加固</h3>
+<p>继续只绑定回环地址；新增同源页面的会话级请求令牌用于创建/取消/确认/导出，并校验 Origin 与 Host。会话令牌不是公网身份认证；若未来支持远程访问，必须另外实现 TLS、认证、权限、配额和审计，不能只修改监听地址。</p>
+<p>源文件名单、作业、下载记录与临时目录有数量和周期上限。重启后凭受控 manifest 恢复下载注册，不从用户提交的路径恢复。日志默认只含哈希截断标识、阶段、耗时和错误码，不含坐标、个人目录或轨迹正文；调试采集需显式同意。</p>
+<h3>11.3 隐私与供应链</h3>
+<p>真实数据和截图保持本机，不提交仓库；共享评测优先使用经许可的合成或脱敏样本。依赖固定版本并检查许可证与漏洞。OSM 数据和引擎的授权、归属声明、分发要求在接入前单独核查。默认关闭遥测、在线底图及地图 API，外部服务不可成为离线模式的隐含依赖。</p>
+</section>
+<section id="evaluation">
+<h2>十一、测试数据与指标</h2>
+<h3>12.1 标注对象与数据分层</h3>
+<p>真实集同时标注：重复区间及方向、候选道路身份与不确定性、实际连接、组合 motif、每个处理目标的可接受输出集合、独有路段和禁止删除区间。没有足够证据的道路身份应标“未知”，不能由待测算法自己生成真值。两名标注者独立标注，分歧仲裁并报告一致性。</p>
+<p>先建 100 条独立路线的探索集形成标注手册；发布验证以至少 300 条独立、可判定且符合支持条件的留出路线为起点，另设平行路/立交/往返等困难负例集。按同一物理路线/同一次出行的来源组分割开发与留出集，扰动、截段、重复采样不得跨集合；每个要宣称支持的关键类型至少 30 条独立路线，不足则缩小支持声明，不用总体平均掩盖。</p>
+<p>地图辅助版本与纯 GPX 版本分开评估，未知样本单列；对算法的拒绝保留为有效结果。真实道路标签需要现场、可靠地图或其他独立证据；真实标注不充分的集合只能评估几何任务。</p>
+<h3>12.2 指标与分母</h3>
+<div class="table-wrap"><table><thead><tr><th>指标</th><th>定义与作用</th></tr></thead><tbody>
+<tr><td>匹配 precision / recall</td><td>按标注弧长覆盖计算，不以大量相邻采样点重复计数；同向/反向分开</td></tr>
+<tr><td>motif 识别</td><td>按类型的 precision / recall / F1、区间边界误差、圈数准确率；组合结构分别计分</td></tr>
+<tr><td>候选正确率</td><td>满足目标契约的候选 / 系统判为可转换的候选；人工核对候选单列</td></tr>
+<tr><td>可转换覆盖率</td><td>系统提供可验证转换的路线 / 真值上可处理的路线；与正确率同时报告，防止全拒绝刷安全</td></tr>
+<tr><td>路线级误删率</td><td>至少一段未经目标授权的独有路段被删除的路线 / 执行了转换的路线；另报占全评测集比例</td></tr>
+<tr><td>独有覆盖损失</td><td>丢失的真实独有边长度 / 原独有覆盖；与允许的主体环/删枝损失分开</td></tr>
+<tr><td>输出有效性</td><td>连通、闭合语义、起终点、圈数、几何偏差、来源映射、长度对账与字段损失</td></tr>
+<tr><td>拒绝与资源</td><td>歧义拒绝率、超限率、p50/p95 时间与峰值内存；声明硬件、点数、候选密度</td></tr>
+</tbody></table></div>
+<h3>12.3 阶段门槛</h3>
+<ul>
+<li><strong>硬约束：</strong>源文件改写、未授权外传、未登记补线、硬约束失败仍成功导出均为零容忍；任一出现即阻断发布。</li>
+<li><strong>已知误裁回归：</strong>当前纯往返 9 个误裁和 10 米平行路 8 个误裁必须全部改为正确处理或明确歧义保留；不要求用错误的强分类来“通过”。</li>
+<li><strong>合成转换：</strong>在当前完整同向圈、等长尾巴、不等长接入三族的 168 个样本上，正确转换目标分别不低于 90%；每档噪声单列。400 米圈若未达到独立门槛继续列为不支持，不能混进长圈平均值。</li>
+<li><strong>真实条件正确率：</strong>对已声明支持、系统判为可转换的候选，目标点估计 ≥98%；同时报告 95% 置信区间。该数字是验收目标，不是当前表现。</li>
+<li><strong>可转换覆盖：</strong>在真值可处理的简单长圈/尾巴路线中目标 ≥70%，各型单列；以安全为前提，不为达覆盖而放宽道路身份约束。</li>
+<li><strong>误删统计：</strong>若希望声明路线级未授权误删率的单侧 95% 上界 &lt;1%，需至少 300 条独立转换路线且观测为 0 次（精确二项近似上界约 0.995%）。300 条“输入路线”中大量拒绝不满足该样本量；有误删时须重新计算上界，不套用零事件公式。</li>
+<li><strong>资源：</strong>在已冻结的支持配置内不得突破预算而继续运行；超时/内存/取消路径全部可测。是否能在 120 秒、512 MiB 内完成目标规模须压测决定，不作为已达成承诺。</li>
+</ul>
+<p>当前 352 个合成样本重复且非独立，不对其套用真实路线二项置信结论。真实评测采用来源组为独立单位；存在相关性时按路线组做 bootstrap 或更保守统计。阈值调整后不能反复以同一留出集宣称独立验证，需新冻结测试集。</p>
+<h3>12.4 测试层次</h3>
+<ol><li>单元/性质：反转不改变无向覆盖、插密不改变拓扑、重复一次圈数按预期变化、平移旋转在容差内不改结果、源数据不变。</li><li>回归：现有 37 个单元/HTTP 测试与 352 样本；新建短圈、密集停留、桥隧、断段、混向和复杂组合族。</li><li>端到端：文件选择 → 分析 → 决策 → 导出 → 重新解析 → 独立验证，含移动端、深浅主题和无外网检查。</li><li>故障：磁盘满、路径变化、并发准入、取消、进程被杀、服务重启、超限、畸形 XML、版本冲突和失败目录清理。</li><li>真实盲测：冻结配置与目标后一次性评估；保留失败样本及失败分类，不只展示成功路线。</li></ol>
+</section>
+<section id="delivery">
+<h2>十二、实现顺序</h2>
+<p>按测试结果推进，不在缺少人员与硬件信息时承诺工期。每阶段通过对应测试后再启用下一阶段。完成探索与资源压测后再估人日和排期。</p>
+<div class="table-wrap"><table><thead><tr><th>阶段</th><th>交付物</th><th>退出条件</th></tr></thead><tbody>
+<tr><td>P0 安全止损与契约冻结</td><td>默认仅分析；现有裁切变为明确选择；独有接入警告；失败族回归；输入/计划/报告 schema；真实标注手册</td><td>不再把直接裁切宣传为通用去重；已知危险场景可拒绝；现功能可回退</td></tr>
+<tr><td>P1 有界证据引擎</td><td>采样溯源、有序匹配、歧义标记、隔离作业/取消/配额、证据预览；真实探索集</td><td>资源与失败封闭测试通过；匹配和负例指标达标</td></tr>
+<tr><td>P2 简单目标转换</td><td>纯往返单程、尾巴主环、完整重复圈；独立验证器与逐候选确认</td><td>对应合成门槛与真实留出指标通过；若短圈未过仍明确禁用</td></tr>
+<tr><td>P3 组合结构与图输出</td><td>内部支路、8 字/双环候选、部分圈、唯一路段图与分段导出</td><td>复杂组合专项集达标；覆盖代价和冲突可解释；不支持单条连续</td></tr>
+<tr><td>P4 可选道路约束</td><td>本地地图匹配、道路规则核验、限定问题下的连续行程规划</td><td>隐私/许可审查通过；方向/连接与地图失败专项验收</td></tr>
+</tbody></table></div>
+<h3>13.1 增量兼容</h3>
+<p>先让旧算法作为候选生成器运行，不直接执行；用 shadow 模式比较新旧候选和输出，在用户不知情时不得自动替换文件。旧报告保持原字段，新字段带 schema；原先的“成功”不追溯解释为新验证通过。新分析默认不继承旧确认。</p>
+<h3>13.2 发布与回滚</h3>
+<p>按功能标志分别启用分析、各转换模式和地图能力；冻结依赖与参数版本。出现未授权误删、来源映射缺失或资源失控，立即关闭对应转换模式，保留只读查看与原始下载。回滚到上一稳定“仅分析”路径，而不是重新启用已知危险的无确认裁切；历史输出只读保留并标记算法版本，不覆盖重写。</p>
+</section>
+<section id="evidence">
+<h2>十三、代码和测试依据</h2>
+<div class="table-wrap"><table><thead><tr><th>依据</th><th>仓库位置 / 已有结果</th></tr></thead><tbody>
+<tr><td>当前算法与参数</td><td><code>gpx_dedupe_project/route_dedupe.py</code>；方案基线 <code>05b1578</code></td></tr>
+<tr><td>本地服务限制</td><td><code>gpx_dedupe_project/web_app.py</code>：限额、快照、回环、安全下载与运行锁</td></tr>
+<tr><td>回归与 HTTP</td><td><code>gpx_dedupe_project/tests/test_route_dedupe.py</code>、<code>test_web_app.py</code>；上一轮 37 项，36 通过、1 私有样本测试跳过</td></tr>
+<tr><td>352 合成样本</td><td><code>gpx_dedupe_project/tests/benchmark_topologies.py</code>；运行产物 <code>outputs/topology-benchmark.json</code> 不提交</td></tr>
+<tr><td>工作台与说明</td><td><code>gpx_dedupe_project/web/</code>；12 类结构说明不是已实现 12 分类器</td></tr>
+<tr><td>浏览器验收</td><td><code>gpx_dedupe_project/tests/browser_smoke.cjs</code>；此前已验证操作、主题、移动端与无外网请求；依赖本机目录与浏览器</td></tr>
+</tbody></table></div>
+<p>在已安装项目依赖的环境，从仓库根目录可复现：</p>
+<pre><code>python -m unittest discover -s gpx_dedupe_project/tests -p "test_*.py" -v
+python gpx_dedupe_project/tests/benchmark_topologies.py</code></pre>
+<p>本机已有缓存环境的对应命令（其他机器需自行准备依赖；不要将离线缓存命令当作通用安装步骤）：</p>
+<pre><code>uv run --offline --no-project --python 3.14 --index-url https://pypi.tuna.tsinghua.edu.cn/simple --with numpy --with scipy --with pyproj --with matplotlib python -m unittest discover -s gpx_dedupe_project/tests -p "test_*.py" -v
+uv run --offline --no-project --python 3.14 --index-url https://pypi.tuna.tsinghua.edu.cn/simple --with numpy --with scipy --with pyproj --with matplotlib python gpx_dedupe_project/tests/benchmark_topologies.py</code></pre>
+<p>上述结果来自方案前已完成的验证，本次文档编写没有重新运行算法测试，也没有重新启动因内存压力停止的本地网页服务。方案不含真实轨迹坐标、源文件、个人目录、凭据或敏感日志；所有新能力均仍处于方案阶段。</p>
+</section>
+<footer>实现顺序：先明确处理目标和输出约束，再完成匹配算法与校验，最后逐步增加复杂拓扑。没有通过测试的能力不开放。</footer>
+</main></div>
