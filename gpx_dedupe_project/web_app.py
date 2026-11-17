@@ -11,6 +11,7 @@ import json
 import math
 import mimetypes
 import os
+import socket
 from pathlib import Path
 import tempfile
 import threading
@@ -19,6 +20,7 @@ import uuid
 
 import route_dedupe
 import route_plans
+import loop_recognition
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_DIR = r"D:\7281\workspace\route\1\komoot\Algeria\Algeria\02_明细\gpx"
@@ -128,18 +130,19 @@ class LocalServer(ThreadingHTTPServer):
             raise APIError(404, "文件标识不存在，请重新列出目录")
         return record
 
-    def read_source(self, record):
+    def read_source(self, record, max_bytes=MAX_GPX_BYTES):
         stat = safe_file(record.path, record.root)
-        if stat.st_size > MAX_GPX_BYTES:
-            raise APIError(413, "GPX 文件不能超过 50MB")
+        limit_message = f"GPX 文件不能超过 {max_bytes // (1024 * 1024)} MiB"
+        if stat.st_size > max_bytes:
+            raise APIError(413, limit_message)
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         with os.fdopen(os.open(record.path, flags), "rb") as source:
             opened = os.fstat(source.fileno())
             if (opened.st_dev, opened.st_ino) != (stat.st_dev, stat.st_ino):
                 raise APIError(403, "文件已变化，请重新列出目录")
-            data = source.read(MAX_GPX_BYTES + 1)
-        if len(data) > MAX_GPX_BYTES:
-            raise APIError(413, "GPX 文件不能超过 50MB")
+            data = source.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise APIError(413, limit_message)
         xml_text = data.replace(b"\x00", b"").upper()
         if b"<!DOCTYPE" in xml_text or b"<!ENTITY" in xml_text:
             raise APIError(400, "GPX 不允许包含 DTD 或实体声明")
@@ -211,6 +214,38 @@ class LocalServer(ThreadingHTTPServer):
         finally:
             self.run_lock.release()
 
+    def recognize_file(self, body):
+        radius = body.get("radius", 12)
+        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
+            raise APIError(400, "radius 必须是数值")
+        if not math.isfinite(radius) or not 1 <= radius <= 30:
+            raise APIError(400, "环识别 radius 必须在 1 至 30 米之间")
+        record = self.source_record(body.get("file_id"))
+        if not self.run_lock.acquire(blocking=False):
+            raise APIError(429, "正在分析或导出另一条路线，请完成后重试")
+        try:
+            config = loop_recognition.LoopRecognitionConfig(match_radius_m=float(radius))
+            data = self.read_source(record, max_bytes=config.max_input_bytes)
+            result = loop_recognition.recognize_bytes(
+                data, config, source_name=record.path.name)
+            # Recognition is read-only evidence, never an applicable transformation plan.
+            recognition_id = uuid.uuid4().hex
+            response = {**result, "recognition_id": recognition_id,
+                        "downloads": {"report": f"/api/download/{recognition_id}/report"}}
+            json.dumps(response, allow_nan=False)
+            self.prepare_output()
+            out = self.output_dir / recognition_id
+            with tempfile.TemporaryDirectory(prefix="recognition-", dir=self.output_dir) as tmp:
+                published = Path(tmp) / "published"
+                published.mkdir()
+                (published / "report.json").write_text(
+                    json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
+                published.rename(out)
+            self.register_downloads(recognition_id, out, {"report": "report.json"})
+            return response
+        finally:
+            self.run_lock.release()
+
     def run_file(self, body):
         # Old clients cannot bypass P0: /api/run is now an analyze-only alias.
         return self.analyze_file(body)
@@ -271,6 +306,29 @@ class LocalServer(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     server: LocalServer
     server_version = "GPXLocal/0.1"
+
+    def finish(self):
+        try:
+            super().finish()
+        finally:
+            # HTTP/1.0 responses close the connection. An early validation error
+            # may leave request bytes in flight; closing with unread data can
+            # reset TCP on Windows before the client receives the JSON error.
+            # Flush/FIN the response first, then discard only a bounded amount
+            # of input. Never trust invalid framing or wait for an entire body.
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+                self.connection.settimeout(.25)
+                remaining = 64 * 1024
+                deadline = time.monotonic() + .25
+                while remaining > 0 and time.monotonic() < deadline:
+                    self.connection.settimeout(max(.001, deadline - time.monotonic()))
+                    data = self.connection.recv(min(8192, remaining))
+                    if not data:
+                        break
+                    remaining -= len(data)
+            except OSError:
+                pass
 
     def log_message(self, format, *args):
         # Do not print untrusted filesystem names or HTTP request text to the terminal.
@@ -386,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = self.server.list_files(body)
                 elif path in ("/api/run", "/api/analyze"):
                     result = self.server.analyze_file(body)
+                elif path == "/api/recognize-loops":
+                    result = self.server.recognize_file(body)
                 elif path == "/api/apply":
                     result = self.server.apply_file(body)
                 else:
@@ -395,6 +455,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise APIError(405, "请求方法不支持，禁止跨域预检")
         except APIError as error:
             self.send_json(error.status, {"error": str(error)})
+        except loop_recognition.RecognitionError as error:
+            self.send_json(400, {"error": f"环识别失败：{error}"})
         except route_plans.PlanError as error:
             self.send_json(400, {"error": str(error)})
         except FileNotFoundError:

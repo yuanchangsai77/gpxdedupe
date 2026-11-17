@@ -58,7 +58,7 @@ const candidate = {goal:'main_loop',method:'reversed_tail_collapse',kept_range_m
       assert.equal(requests.length,before,'selecting another file requires no analysis');
       await files.first().click();
     };
-    await page.goto('http://gpx-p0.test/');await page.waitForFunction(()=>!document.querySelector('#run').disabled);
+    await page.goto('http://gpx-p0.test/?mode=transform');await page.waitForFunction(()=>!document.querySelector('#run').disabled);
     await selectSecondAfterScan();
     await analyze();assert.deepEqual(requests[0],{path:'/api/analyze',body:{file_id:'file-a',radius:18}});
     assert.match(await page.locator('#result-badge').innerText(),/候选.*未导出/);assert.equal(await page.locator('#goal').inputValue(),'');
