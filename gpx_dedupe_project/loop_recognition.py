@@ -12,7 +12,12 @@ from dataclasses import asdict, dataclass, fields, replace
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -121,6 +126,15 @@ def _load(raw, cfg):
         raise
     except (ET.ParseError, ValueError, KeyError, TypeError, OverflowError, LookupError) as exc:
         raise RecognitionError('GPX 格式或坐标无效。') from exc
+    return _prepare_coordinates(coords, cfg)
+
+
+def _prepare_coordinates(coords, cfg):
+    coords = np.asarray(coords, dtype=float)
+    if (coords.ndim != 2 or coords.shape[1] != 2 or not 3 <= len(coords) <= cfg.max_points
+            or not np.isfinite(coords).all() or np.any(np.abs(coords[:, 0]) > 180)
+            or np.any(np.abs(coords[:, 1]) > 90)):
+        raise RecognitionError('经纬度或轨迹点数无效。')
     if (np.ptp(coords[:, 0]) > 6 or np.ptp(coords[:, 1]) > 6
             or np.max(coords[:, 1]) > 84 or np.min(coords[:, 1]) < -80):
         raise RecognitionError('轨迹超出局部 UTM 支持范围；不支持跨日期变更线或大跨度轨迹。')
@@ -1471,6 +1485,13 @@ def _visual_near_closure(coords, xy, distances, cfg):
     return view_coords, view_xy, True, gap
 
 
+def _input_failure(exc, cfg, digest=None):
+    message = str(exc)
+    code = ('resource_limit' if ('超过' in message or ('超出' in message and '点数' in message)) else
+            'unsupported_input' if ('支持' in message or 'UTM' in message) else 'invalid_input')
+    return _classification_result(1, [message], cfg, reason_code=code, input_hash=digest)
+
+
 def classify_route_bytes(raw, config=None):
     """Return the visual whole-route class, separately from strict loop reports."""
     cfg = _shape_config(config)
@@ -1479,11 +1500,30 @@ def classify_route_bytes(raw, config=None):
     if len(raw) > cfg.max_input_bytes:
         return _classification_result(1, ['GPX输入超过字节上限。'], cfg, reason_code='resource_limit')
     digest = hashlib.sha256(raw).hexdigest()
-    metrics = {}
     try:
-        # Reuse input safety, not the old sampling-dependent decomposition.
         admission = LoopRecognitionConfig(max_input_bytes=cfg.max_input_bytes, max_points=cfg.max_points)
         coords, xy, distances, _ = _load(raw, admission)
+    except RecognitionError as exc:
+        return _input_failure(exc, cfg, digest)
+    return _classify_prepared(coords, xy, distances, cfg, digest)
+
+
+def classify_coordinates(coords, config=None):
+    """Classify explicit [longitude, latitude] coordinates without GPX transcoding."""
+    cfg = _shape_config(config)
+    try:
+        coords, xy, distances, _ = _prepare_coordinates(coords, cfg)
+    except (RecognitionError, ValueError, TypeError, OverflowError) as exc:
+        if isinstance(exc, RecognitionError):
+            return _input_failure(exc, cfg)
+        return _classification_result(1, ['路线坐标格式无效。'], cfg, reason_code='invalid_input')
+    return _classify_prepared(coords, xy, distances, cfg)
+
+
+def _classify_prepared(coords, xy, distances, cfg, digest=None):
+    metrics = {}
+    try:
+        admission = LoopRecognitionConfig(max_input_bytes=cfg.max_input_bytes, max_points=cfg.max_points)
         if distances[-1] < cfg.min_resolved_length_m:
             raise _ShapeFailure('ambiguous_shape', '路线低于整体形态最小可分辨尺度。')
         if _noise_diagnostic(xy, admission):
@@ -1524,10 +1564,7 @@ def classify_route_bytes(raw, config=None):
     except _ShapeFailure as exc:
         return _classification_result(1, [str(exc)], cfg, metrics, reason_code=exc.code, input_hash=digest)
     except RecognitionError as exc:
-        message = str(exc)
-        code = ('resource_limit' if ('超过' in message or ('超出' in message and '点数' in message)) else
-                'unsupported_input' if ('支持' in message or 'UTM' in message) else 'invalid_input')
-        return _classification_result(1, [message], cfg, reason_code=code, input_hash=digest)
+        return _input_failure(exc, cfg, digest)
 
 
 def classify_route(path, config=None):
@@ -1540,31 +1577,569 @@ def classify_route(path, config=None):
     return classify_route_bytes(raw, cfg)
 
 
+MAX_EXPORT_BYTES = 256 * 1024 * 1024
+MAX_JSON_DOCUMENT_BYTES = 64 * 1024 * 1024
+MAX_EXPORT_RECORD_BYTES = 16 * 1024 * 1024
+MAX_EXPORT_RECORDS = 10_000
+
+
+class ExportError(ValueError):
+    """Safe, non-private JSON export/selection error."""
+
+
+class BatchCancelled(Exception):
+    """No full run was authorized; no result should be published."""
+
+
+def _strict_json(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ExportError('JSON包含重复字段。')
+            result[key] = value
+        return result
+
+    def constant(_):
+        raise ExportError('JSON不支持NaN或Infinity。')
+
+    def number(text):
+        value = float(text)
+        if not math.isfinite(value):
+            raise ExportError('JSON不支持超出有限范围的数值。')
+        return value
+
+    try:
+        return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant, parse_float=number)
+    except ExportError:
+        raise
+    except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError) as exc:
+        raise ExportError('JSON语法、编码或嵌套深度无效。') from exc
+
+
+def _source_signature(stat):
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def _record_metadata(record, index, line=None):
+    identifier = record.get('topRouteId') if isinstance(record, dict) else None
+    warnings = []
+    if not isinstance(identifier, str) or not identifier.strip():
+        identifier = None
+        warnings.append('missing_or_invalid_topRouteId')
+    segments = record.get('segments') if isinstance(record, dict) else None
+    points = (segments[0].get('routePoints') if isinstance(segments, list) and len(segments) == 1
+              and isinstance(segments[0], dict) else None)
+    return {'source_index': index, 'source_line': line, 'topRouteId': identifier,
+            'point_count': len(points) if isinstance(points, list) else 0,
+            'schema_supported': isinstance(points, list) and len(points) >= 3,
+            'warnings': warnings}
+
+
+class RouteExportIndex:
+    """Bounded input index. NDJSON keeps offsets/hashes, never all coordinates."""
+    def __init__(self, path, input_format='auto'):
+        self.path = Path(path)
+        self.entries = []
+        self._document_records = None
+        if input_format not in ('auto', 'json', 'ndjson'):
+            raise ExportError('不支持的JSON导出格式。')
+        try:
+            with self.path.open('rb') as stream:
+                stat = os.fstat(stream.fileno())
+                if stat.st_size > MAX_EXPORT_BYTES:
+                    raise ExportError('导出文件超过256MiB扫描上限。')
+                self.signature = _source_signature(stat)
+                first = b''
+                first_offset = 0
+                while True:
+                    first_offset = stream.tell()
+                    first = stream.readline(MAX_EXPORT_RECORD_BYTES + 1)
+                    if not first:
+                        raise ExportError('导出文件为空。')
+                    if first_offset == 0:
+                        first = first.removeprefix(b'\xef\xbb\xbf')
+                    if first.strip():
+                        break
+                prefix = first.lstrip()
+                if input_format == 'ndjson':
+                    document = False
+                elif prefix.startswith(b'['):
+                    document = True
+                else:
+                    try:
+                        _strict_json(first.decode('utf-8-sig'))
+                        document = False
+                    except ExportError:
+                        document = True
+                stream.seek(0)
+                if document:
+                    if stat.st_size > MAX_JSON_DOCUMENT_BYTES:
+                        raise ExportError('单JSON文档超过64MiB上限，请使用NDJSON。')
+                    raw = stream.read(MAX_JSON_DOCUMENT_BYTES + 1)
+                    if len(raw) > MAX_JSON_DOCUMENT_BYTES:
+                        raise ExportError('单JSON文档超过64MiB上限。')
+                    data = _strict_json(raw.decode('utf-8-sig'))
+                    records = data if isinstance(data, list) else [data]
+                    if not records or len(records) > MAX_EXPORT_RECORDS:
+                        raise ExportError('导出路线数量必须为1至10000。')
+                    self.format = 'json_array' if isinstance(data, list) else 'json_object'
+                    self._document_records = []
+                    for index, record in enumerate(records, 1):
+                        try:
+                            encoded = json.dumps(record, ensure_ascii=False, allow_nan=False).encode('utf-8')
+                        except (ValueError, TypeError, RecursionError) as exc:
+                            raise ExportError('JSON路线记录无法安全编码。') from exc
+                        if len(encoded) > MAX_EXPORT_RECORD_BYTES:
+                            raise ExportError('单条路线记录超过16MiB上限。')
+                        self._document_records.append(encoded)
+                        self.entries.append(_record_metadata(record, index))
+                    self.source_sha256 = hashlib.sha256(raw).hexdigest()
+                else:
+                    self.format = 'ndjson'
+                    digest, line_number, total = hashlib.sha256(), 0, 0
+                    while True:
+                        offset = stream.tell()
+                        raw = stream.readline(MAX_EXPORT_RECORD_BYTES + 1)
+                        if not raw:
+                            break
+                        line_number += 1
+                        total += len(raw)
+                        if len(raw) > MAX_EXPORT_RECORD_BYTES or total > MAX_EXPORT_BYTES:
+                            raise ExportError('NDJSON文件或单行记录超过大小上限。')
+                        digest.update(raw)
+                        text = raw.decode('utf-8-sig' if offset == 0 else 'utf-8')
+                        if not text.strip():
+                            continue
+                        record = _strict_json(text)
+                        if len(self.entries) >= MAX_EXPORT_RECORDS:
+                            raise ExportError('导出路线数量超过10000上限。')
+                        entry = _record_metadata(record, len(self.entries) + 1, line_number)
+                        entry.update(offset=offset, byte_length=len(raw), record_sha256=hashlib.sha256(raw).hexdigest())
+                        self.entries.append(entry)
+                    if not self.entries:
+                        raise ExportError('没有可选择的路线记录。')
+                    self.source_sha256 = digest.hexdigest()
+                if self.signature != _source_signature(os.fstat(stream.fileno())):
+                    raise ExportError('索引期间源文件发生变化。')
+        except ExportError:
+            raise
+        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+            raise ExportError('无法安全读取JSON导出文件。') from exc
+        counts = {}
+        for entry in self.entries:
+            identifier = entry['topRouteId']
+            if identifier is not None:
+                counts[identifier] = counts.get(identifier, 0) + 1
+        for entry in self.entries:
+            if entry['topRouteId'] is not None and counts[entry['topRouteId']] > 1:
+                entry['warnings'].append('duplicate_topRouteId')
+
+    def select(self, *, top_route_id=None, start=None, count=None, all_routes=False):
+        choices = int(top_route_id is not None) + int(start is not None or count is not None) + int(all_routes)
+        if choices != 1:
+            raise ExportError('JSON必须且只能选择ID、start/count或all。')
+        if top_route_id is not None:
+            if not isinstance(top_route_id, str) or not top_route_id.strip():
+                raise ExportError('topRouteId必须为非空字符串。')
+            found = [entry for entry in self.entries if entry['topRouteId'] == top_route_id]
+            if len(found) != 1:
+                raise ExportError('topRouteId未找到或存在重复，不能唯一选择。')
+            return found
+        if all_routes:
+            return list(self.entries)
+        if type(start) is not int or type(count) is not int or start < 1 or count < 1:
+            raise ExportError('start和count必须同时提供且为正整数，序号从1开始。')
+        if start + count - 1 > len(self.entries):
+            raise ExportError('选择范围超出路线记录数量。')
+        return self.entries[start - 1:start - 1 + count]
+
+    def verify(self, full_hash=False):
+        try:
+            with self.path.open('rb') as stream:
+                if self.signature != _source_signature(os.fstat(stream.fileno())):
+                    raise ExportError('源文件已变化，请重新扫描和确认。')
+                if full_hash:
+                    digest, size = hashlib.sha256(), 0
+                    while True:
+                        block = stream.read(1024 * 1024)
+                        if not block:
+                            break
+                        size += len(block)
+                        if size > MAX_EXPORT_BYTES:
+                            raise ExportError('源文件已变化，请重新扫描和确认。')
+                        digest.update(block)
+                    if digest.hexdigest() != self.source_sha256:
+                        raise ExportError('源文件内容已变化，请重新扫描和确认。')
+        except OSError as exc:
+            raise ExportError('源文件不可用，请重新扫描。') from exc
+
+    def load(self, entry):
+        self.verify()
+        if self._document_records is not None:
+            return _strict_json(self._document_records[entry['source_index'] - 1])
+        try:
+            with self.path.open('rb') as stream:
+                if self.signature != _source_signature(os.fstat(stream.fileno())):
+                    raise ExportError('源文件已变化，请重新扫描。')
+                stream.seek(entry['offset'])
+                raw = stream.read(entry['byte_length'])
+            if hashlib.sha256(raw).hexdigest() != entry['record_sha256']:
+                raise ExportError('选中路线内容已变化，请重新扫描。')
+            return _strict_json(raw.decode('utf-8-sig' if entry['offset'] == 0 else 'utf-8'))
+        except (OSError, UnicodeError) as exc:
+            raise ExportError('无法读取选中路线记录。') from exc
+
+
+def _valid_export_numbers(lon, lat, altitude):
+    try:
+        finite = lambda value: (type(value) in (int, float) and math.isfinite(value))
+        valid = finite(lon) and finite(lat) and (altitude is None or finite(altitude))
+    except (OverflowError, ValueError):
+        valid = False
+    return valid
+
+
+def classify_export_record(record, config=None):
+    """Adapt one exported route to the same coordinate classifier used by GPX."""
+    cfg = _shape_config(config)
+    if not isinstance(record, dict):
+        return _classification_result(1, ['路线记录必须是对象。'], cfg, reason_code='invalid_input')
+    segments = record.get('segments')
+    if not isinstance(segments, list) or not segments:
+        return _classification_result(1, ['路线缺少segments。'], cfg, reason_code='invalid_input')
+    if len(segments) != 1:
+        return _classification_result(1, ['首版不支持多segment，不会跨段连接。'], cfg, reason_code='unsupported_input')
+    points = segments[0].get('routePoints') if isinstance(segments[0], dict) else None
+    if not isinstance(points, list) or not 3 <= len(points) <= cfg.max_points:
+        return _classification_result(1, ['routePoints为空或点数超出限制。'], cfg,
+                                      reason_code='resource_limit' if isinstance(points, list) and len(points) > cfg.max_points else 'invalid_input')
+    coords = []
+    for point in points:
+        if not isinstance(point, dict):
+            return _classification_result(1, ['路线点必须为对象。'], cfg, reason_code='invalid_input')
+        lon, lat, altitude = point.get('longitude'), point.get('latitude'), point.get('altitude')
+        if not _valid_export_numbers(lon, lat, altitude):
+            return _classification_result(1, ['经纬度和可选海拔必须为有限数值。'], cfg, reason_code='invalid_input')
+        coords.append([lon, lat])
+    return classify_coordinates(coords, cfg)
+
+
+def _worker_main():
+    """Private bounded data-only subprocess protocol; stdout contains one result."""
+    try:
+        raw = sys.stdin.buffer.read(MAX_EXPORT_RECORD_BYTES + 1)
+        if len(raw) > MAX_EXPORT_RECORD_BYTES:
+            raise ExportError('worker输入超过上限。')
+        request = _strict_json(raw)
+        result = classify_export_record(request['record'], request.get('config'))
+        print(json.dumps(result, ensure_ascii=True, allow_nan=False))
+        return 0
+    except Exception:
+        # Never echo untrusted data, metadata or private exception paths.
+        print(json.dumps({'worker_error': 'internal_error'}))
+        return 2
+
+
+def _run_route_worker(record, config, timeout, heartbeat=None):
+    # Admit and minimize data before transport; descriptions and point metadata
+    # cannot inflate the request or cross the worker boundary.
+    if not isinstance(record, dict):
+        return _classification_result(1, ['路线记录必须是对象。'], config, reason_code='invalid_input')
+    segments = record.get('segments')
+    if not isinstance(segments, list) or not segments:
+        return _classification_result(1, ['路线缺少segments。'], config, reason_code='invalid_input')
+    if len(segments) != 1:
+        return _classification_result(1, ['首版不支持多segment，不会跨段连接。'], config, reason_code='unsupported_input')
+    points = segments[0].get('routePoints') if isinstance(segments[0], dict) else None
+    if not isinstance(points, list) or not 3 <= len(points) <= config.max_points:
+        return _classification_result(1, ['路线点数无效或超过上限。'], config,
+            reason_code='resource_limit' if isinstance(points, list) and len(points) > config.max_points else 'invalid_input')
+    minimal = []
+    for point in points:
+        if not isinstance(point, dict) or not _valid_export_numbers(
+                point.get('longitude'), point.get('latitude'), point.get('altitude')):
+            return _classification_result(1, ['路线点必须包含有限数值坐标。'], config, reason_code='invalid_input')
+        item = {key: point[key] for key in ('longitude', 'latitude', 'altitude') if key in point}
+        minimal.append(item)
+    geometry = {'segments': [{'routePoints': minimal}]}
+    request = json.dumps({'record': geometry, 'config': asdict(config)}, ensure_ascii=False,
+                         allow_nan=False).encode('utf-8')
+    if len(request) > MAX_EXPORT_RECORD_BYTES:
+        return _classification_result(1, ['worker输入超过上限。'], config, reason_code='resource_limit')
+    # Windows communicate(input=...) writes synchronously before timed waits.
+    # An anonymous seekable file makes stdin immediately readable, with no pipe
+    # writer that could block the deadline/heartbeat loop or outlive cancellation.
+    with tempfile.TemporaryFile(mode='w+b') as request_file:
+        request_file.write(request)
+        request_file.seek(0)
+        return _execute_route_worker(request_file, config, timeout, heartbeat)
+
+
+def _execute_route_worker(request_file, config, timeout, heartbeat=None):
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen([sys.executable, '-I', '-B', '-X', 'utf8', str(Path(__file__).resolve()),
+                                    '--_route-worker'], stdin=request_file, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, shell=False)
+    except OSError:
+        return _classification_result(1, ['无法启动路线执行器。'], config, reason_code='internal_error')
+    try:
+        if heartbeat:
+            heartbeat()
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                process.kill()
+                process.communicate()
+                return _classification_result(1, ['单条路线超过运行时限。'], config, reason_code='resource_limit')
+            try:
+                output, _ = process.communicate(timeout=min(.25, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                if heartbeat:
+                    heartbeat()
+        if process.returncode != 0 or len(output) > 4 * 1024 * 1024:
+            raise ExportError('worker失败。')
+        result = _strict_json(output)
+        if (not isinstance(result, dict) or result.get('kind') != 'route_shape_classification'
+                or type(result.get('category')) is not int or result['category'] not in (1, 2, 3, 4)):
+            raise ExportError('worker输出无效。')
+        return result
+    except KeyboardInterrupt:
+        process.kill()
+        process.communicate()
+        raise
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        return _classification_result(1, ['路线执行器异常，未给出几何结论。'], config, reason_code='internal_error')
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
+
+
+def _display_identifier(value):
+    text = value if isinstance(value, str) else '(无有效ID)'
+    # Route IDs are untrusted terminal text. Escape control/directional codes.
+    return json.dumps(text[:80], ensure_ascii=True)
+
+
+def run_export_batch(index, selected, *, selection=None, config=None, timeout=60.,
+                     input_stream=None, progress=None, worker=None, clock=None):
+    """Interactive CLI orchestration; only explicit Yes authorizes a multi-run."""
+    cfg = _shape_config(config)
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not .1 <= timeout <= 3600:
+        raise ExportError('单路线timeout必须介于0.1和3600秒之间。')
+    if not selected:
+        raise ExportError('没有选中路线。')
+    input_stream = sys.stdin if input_stream is None else input_stream
+    progress = sys.stderr if progress is None else progress
+    worker = _run_route_worker if worker is None else worker
+    clock = time.monotonic if clock is None else clock
+    started = clock()
+    count, cache, measured, pilot_timeout = len(selected), {}, [], False
+    pilot_elapsed = 0.
+    tty = bool(getattr(progress, 'isatty', lambda: False)())
+    progress.write(f'扫描完成：{index.format}，共{len(index.entries)}条，选中{count}条，'
+                   f'共{sum(e["point_count"] for e in selected)}点，'
+                   f'{sum(not e["schema_supported"] for e in selected)}条明显缺少可用单段坐标。\n')
+    progress.flush()
+    if count > 1:
+        candidates = sorted((e for e in selected if e['schema_supported']),
+                            key=lambda e: (e['point_count'], e['source_index']))
+        sample_count = min(3, count - 1, len(candidates))
+        slots = ([0] if sample_count == 1 else
+                 [round(i * (len(candidates) - 1) / (sample_count - 1)) for i in range(sample_count)])
+        samples = [candidates[slot] for slot in slots]
+        progress.write(f'估时试算：最多{sample_count}条，每条不超过{min(5., timeout):g}秒；'
+                       '尚未执行剩余整批，不生成报告。\n')
+        progress.flush()
+        for entry in samples:
+            before = clock()
+            result = worker(index.load(entry), cfg, min(5., timeout))
+            duration = max(.001, clock() - before)
+            pilot_elapsed += duration
+            if result.get('reason_code') == 'resource_limit':
+                pilot_timeout = True
+            else:
+                cache[entry['source_index']] = result
+            # A completed geometric ambiguity with computed metrics is valid
+            # timing evidence, unlike schema rejection, startup failure or timeout.
+            if result['category'] != 1 or (result.get('reason_code') == 'ambiguous_shape'
+                                            and result.get('metrics')):
+                measured.append((entry['point_count'], duration))
+            progress.write(f'试算 {entry["source_index"]} ID={_display_identifier(entry["topRouteId"])} '
+                           f'完成，耗时{duration:.2f}秒。\n')
+            progress.flush()
+        remaining = [entry for entry in selected if entry['source_index'] not in cache]
+        if measured and not pilot_timeout:
+            predicted = 0.
+            for entry in remaining:
+                n, elapsed = min(measured, key=lambda pair: abs(pair[0] - entry['point_count']))
+                predicted += elapsed * max(.5, min(4., entry['point_count'] / max(n, 1)))
+            estimate = f'预计剩余约{predicted * .5:.1f}–{predicted * 2.5:.1f}秒（小样本估计，非保证）'
+        else:
+            estimate = '无法可靠估计：试算超时或没有有效分类耗时样本'
+        progress.write(f'{estimate}；剩余{len(remaining)}条，逐条时限{timeout:g}秒，'
+                       f'串行时限合计上界约{len(remaining) * timeout:.0f}秒（另有扫描/调度开销）。\n')
+        while True:
+            progress.write('继续处理并发布整批结果？[Yes/No，默认No]: ')
+            progress.flush()
+            answer = input_stream.readline().strip().lower()
+            if answer in ('yes', 'y'):
+                break
+            if answer in ('', 'no', 'n'):
+                progress.write('已取消；未执行剩余路线，未发布报告。\n')
+                progress.flush()
+                raise BatchCancelled()
+            progress.write('请输入Yes或No。\n')
+    index.verify()
+    execution_started = clock()
+    rows = []
+    last_heartbeat = [execution_started]
+    for entry in selected:
+        done = len(rows)
+        label = f'index={entry["source_index"]} ID={_display_identifier(entry["topRouteId"])}'
+        def heartbeat():
+            now = clock()
+            elapsed = max(0., now - execution_started)
+            if tty:
+                progress.write(f'\r[{"#" * (20 * done // count):<20}] {done}/{count} '
+                               f'{label} 运行中 已耗时{elapsed:.1f}s')
+                progress.flush()
+            elif now - last_heartbeat[0] >= 5.:
+                progress.write(f'心跳 {label} 仍在运行，执行阶段已耗时{elapsed:.1f}s。\n')
+                progress.flush()
+                last_heartbeat[0] = now
+        result = cache.get(entry['source_index'])
+        if result is None:
+            progress.write(f'开始 {label}\n')
+            progress.flush()
+            result = worker(index.load(entry), cfg, timeout, heartbeat=heartbeat)
+        row = {key: entry[key] for key in ('source_index', 'source_line', 'topRouteId', 'warnings')}
+        row['classification'] = result
+        rows.append(row)
+        elapsed = max(.001, clock() - execution_started + pilot_elapsed)
+        remaining = (elapsed / len(rows)) * (count - len(rows))
+        prefix = '\r' if tty else ''
+        progress.write(f'{prefix}[{"#" * (20 * len(rows) // count):<20}] '
+                       f'{len(rows)}/{count} {label} 类别{result["category"]} '
+                       f'已耗时{elapsed:.1f}s 剩余约{remaining:.1f}s\n')
+        progress.flush()
+    index.verify(full_hash=True)
+    categories = {str(n): sum(row['classification']['category'] == n for row in rows) for n in (1, 2, 3, 4)}
+    return {'schema_version': '1.0', 'kind': 'route_shape_batch', 'status': 'complete',
+            'input_sha256': index.source_sha256, 'input_format': index.format,
+            'selection': selection or {}, 'source_records': len(index.entries),
+            'selected_count': count, 'processed_count': len(rows),
+            'elapsed_seconds': max(0., clock() - execution_started + pilot_elapsed),
+            'wall_seconds_including_confirmation': max(0., clock() - started),
+            'category_counts': categories,
+            'execution_errors': sum(row['classification'].get('reason_code') == 'internal_error' for row in rows),
+            'results': rows}
+
+
+def compact_batch_results(batch):
+    """Keep source order and duplicate IDs; do not turn rows into a lossy map."""
+    return [{'topRouteId': row['topRouteId'], 'category': row['classification']['category']}
+            for row in batch['results']]
+
+
+def _preflight_output(path, source):
+    if path is None:
+        return
+    target = Path(path)
+    if target.exists() or target.is_symlink() or target.resolve() == Path(source).resolve():
+        raise ExportError('输出已存在或指向输入，禁止覆盖。')
+    if not target.parent.is_dir():
+        raise ExportError('输出父目录不存在。')
+
+
+def _publish_json(result, output=None):
+    if output is None:
+        print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
+        return
+    # Write to an exclusively created sibling, then atomically create the final
+    # pathname with a no-overwrite hard link. Never unlink the output pathname:
+    # another process may have replaced it, even after our successful creation.
+    target = Path(output)
+    descriptor, temporary = tempfile.mkstemp(prefix='.route-report-', suffix='.tmp', dir=target.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            json.dump(result, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write('\n')
+        os.link(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Read-only GPX loop structure recognition (no cleaned track).')
+    if sys.argv[1:] == ['--_route-worker']:
+        raise SystemExit(_worker_main())
+    parser = argparse.ArgumentParser(description='Standalone GPX / exported JSON route shape classification.')
     parser.add_argument('input')
     parser.add_argument('--radius', type=float)
     parser.add_argument('--spacing', type=float)
-    parser.add_argument('--out', help='Optional NEW JSON report file; existing files are never overwritten.')
-    parser.add_argument('--classify', action='store_true', help='Return whole-route class 1/2/3/4 instead of strict-loop diagnostics.')
+    parser.add_argument('--out', help='NEW UTF-8 JSON report file; existing files are never overwritten.')
+    parser.add_argument('--classify', action='store_true', help='Whole-route class 1/2/3/4; implicit for JSON.')
+    parser.add_argument('--input-format', choices=('auto', 'gpx', 'json', 'ndjson'), default='auto')
+    selectors = parser.add_mutually_exclusive_group()
+    selectors.add_argument('--top-route-id')
+    selectors.add_argument('--start', type=int, help='1-based source record index; requires --count.')
+    selectors.add_argument('--all', action='store_true', dest='all_routes')
+    parser.add_argument('--count', type=int)
+    parser.add_argument('--detailed', action='store_true', help='Include full diagnostics in JSON export results; default is ID/category pairs.')
+    parser.add_argument('--route-timeout', type=float, default=60., help='Per-route worker wall time, including startup.')
     args = parser.parse_args()
-    if args.classify and (args.radius is not None or args.spacing is not None):
-        parser.error('--radius / --spacing only apply to strict-loop diagnostics, not --classify')
     try:
-        result = (classify_route(args.input) if args.classify else
-                  recognize_loops(args.input, LoopRecognitionConfig(
-                      match_radius_m=12. if args.radius is None else args.radius,
-                      spacing_m=8. if args.spacing is None else args.spacing)))
-        text = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)
-        if args.out:
-            with Path(args.out).open('x', encoding='utf-8') as output:
-                output.write(text + '\n')
+        _preflight_output(args.out, args.input)
+        input_format = args.input_format
+        if input_format == 'auto':
+            suffix = Path(args.input).suffix.lower()
+            if suffix == '.gpx':
+                input_format = 'gpx'
+            elif suffix in ('.json', '.jsonl', '.ndjson'):
+                input_format = 'auto'
+            else:
+                with Path(args.input).open('rb') as stream:
+                    prefix = stream.read(4096).removeprefix(b'\xef\xbb\xbf').lstrip()
+                input_format = 'gpx' if prefix.startswith(b'<') else 'auto'
+        json_selection = args.top_route_id is not None or args.start is not None or args.count is not None or args.all_routes
+        if input_format == 'gpx':
+            if json_selection or args.route_timeout != 60. or args.detailed:
+                raise ExportError('JSON选择器、detailed和route-timeout不能用于GPX。')
+            if args.classify and (args.radius is not None or args.spacing is not None):
+                raise ExportError('--radius / --spacing不能与--classify混用。')
+            result = (classify_route(args.input) if args.classify else
+                      recognize_loops(args.input, LoopRecognitionConfig(
+                          match_radius_m=12. if args.radius is None else args.radius,
+                          spacing_m=8. if args.spacing is None else args.spacing)))
+            _publish_json(result, args.out)
+            if args.classify and result['category'] == 1:
+                parser.exit(2)
         else:
-            print(text)
-        if args.classify and result['category'] == 1:
-            parser.exit(2)
-    except (RecognitionError, OSError) as exc:
-        parser.exit(2, f'{exc}\n')
+            if args.radius is not None or args.spacing is not None:
+                raise ExportError('--radius / --spacing仅支持GPX详细诊断。')
+            index = RouteExportIndex(args.input, input_format)
+            selected = index.select(top_route_id=args.top_route_id, start=args.start,
+                                    count=args.count, all_routes=args.all_routes)
+            selection = ({'topRouteId': args.top_route_id} if args.top_route_id is not None else
+                         {'all': True} if args.all_routes else {'start': args.start, 'count': args.count})
+            result = run_export_batch(index, selected, selection=selection, timeout=args.route_timeout)
+            _publish_json(result if args.detailed else compact_batch_results(result), args.out)
+            if result['category_counts']['1']:
+                parser.exit(2)
+    except BatchCancelled:
+        parser.exit(3)
+    except KeyboardInterrupt:
+        sys.stderr.write('\n已中断；未发布完整报告。\n')
+        parser.exit(130)
+    except (RecognitionError, ExportError, OSError, UnicodeError) as exc:
+        message = str(exc) if isinstance(exc, (RecognitionError, ExportError)) else '输入或输出操作失败。'
+        parser.exit(2, f'{message}\n')
 
 
 if __name__ == '__main__':

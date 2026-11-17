@@ -107,6 +107,59 @@ python tests/benchmark_route_shapes.py --folder "D:/你的GPX目录"
 python -m unittest discover -s tests -p "test_route_shape.py" -v
 ```
 
+## 多路线导出JSON / NDJSON（单文件CLI）
+
+同一个 `loop_recognition.py` 还支持按 `topRouteId`、原始序号或全部记录，对导出中的多条路线逐条作**整体四分类**。JSON模式自动启用分类，不返回旧详细2.1报告，也不会把多条路线连起来。
+
+已检查的 `toproute_all.export.json` 实际为NDJSON（一行一个对象）：916条路线、131,134点，ID为唯一字符串。脚本不依赖该私有文件；支持同schema的NDJSON、顶层JSON数组及单路线对象。坐标只读取 `segments[0].routePoints[].longitude/latitude` 和可选 `altitude`，不以centerPoint代替路线、不猜经纬顺序；多segment暂返回该条类别1，不跨段补线。
+
+```powershell
+# 单条：ID精确字符串匹配，不提示批量确认
+python loop_recognition.py "C:\Users\7281\Downloads\toproute_all.export.json" --top-route-id "实际ID"
+
+# 从第10条开始取20条，即原文件第10～29条（1基，不按ID排序）
+python loop_recognition.py "C:\Users\7281\Downloads\toproute_all.export.json" --start 10 --count 20 --out batch.json
+
+# 全部：正式执行前仍需输入Yes
+python loop_recognition.py "C:\Users\7281\Downloads\toproute_all.export.json" --all --out all-results.json
+```
+
+三个选择方式互斥，`--start`与`--count`必须同时提供，越界不静默截断；没有选择器也不会自动运行all。ID保留前导零，不将数字与字符串ID混为一谈；按ID遇重复或未找到拒绝选择。范围/all按index保留所有记录，缺失/非法/重复ID附warning，不以ID去重丢路线。`--input-format auto|gpx|json|ndjson`可显式指定；`.json`自动识别NDJSON，`--radius/--spacing`不能用于导出JSON。
+
+### 估时、确认与进度
+
+选中多于1条时：先显示数量和点数，再明确告知进行最多3条小/中/大点数分层试算，每条最多5秒（若逐条时限更低则采用更低值）；两条任务只试一条。试算不生成结果文件，快速几何失败不用于正常耗时估计。根据实测给剩余耗时**估计区间，不是保证**；超时或无有效样本则明确无法可靠估计，并给逐条时限合计上界。
+
+随后提示 `继续处理并发布整批结果？[Yes/No，默认No]`：仅Yes/y继续；No/n、空输入或EOF取消。非交互调用也必须从stdin明确提供确认，没有默认批准或静默`--yes`。No之后不执行剩余路线、不输出结果JSON、不创建报告；已经完成的少量试算不会“撤销”，也不会发布。Yes后复用有效试算结果，按源顺序返回整批。
+
+估时、提示和进度写**stderr**，stdout只有最终JSON。终端显示进度条、已完成/总数、当前index与ID、耗时和动态剩余估计；非终端写按行日志，长任务定期心跳。ID按终端安全转义显示，避免控制字符。每条在同脚本子进程中串行运行，默认60秒时限（含启动），可用 `--route-timeout 120` 修改（0.1–3600秒）；worker仅接收坐标及可选海拔，不传递段描述或点元数据。请求通过自动关闭的匿名临时文件作为stdin，避免Windows同步管道写入阻塞超时/心跳循环；临时文件不作为用户报告保存。超时回收worker，记录该条类别1后继续。Ctrl+C回收当前worker并退出，不发布假完整报告。不启动网页、不产生临时GPX、不引入tqdm或第四个依赖。
+
+### 结果、安全与退出码
+
+JSON导出模式默认只返回按源顺序排列的ID/类别配对，例如：
+```json
+[
+  {"topRouteId": "tktrk956", "category": 1},
+  {"topRouteId": "example-id", "category": 2}
+]
+```
+`category`只有1/2/3/4，不附配置、几何指标和批次元数据。使用数组而非ID字典，避免重复ID覆盖结果；缺失ID显示null，记录不丢失。输入No等取消行为、估时和stderr进度不变。
+
+需要诊断时显式添加 `--detailed`，才返回 `kind=route_shape_batch` 完整envelope，含来源内容SHA-256、实际格式、选择、总数、处理数、耗时、各类别计数和 `results`；每项保留1基 `source_index`、NDJSON物理 `source_line`、`topRouteId`、warning及完整 `classification`。Python `run_export_batch()`仍返回完整结构，`compact_batch_results()`可提取配对。单条几何错误不会吞掉其他路线；默认简洁输出和详细输出都不包含用户名、描述、地址或坐标。GPX原有输出不变，`--detailed`仅适用于导出JSON模式。
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | 批次完成且全部为2/3/4 |
+| 2 | 完成但含类别1（仍有结果），或输入/选择/输出失败（不发布批次） |
+| 3 | 用户No、空输入或EOF取消，无报告 |
+| 130 | Ctrl+C中断，无完整报告 |
+
+扫描上限256MiB/10000记录，单JSON文档上限64MiB，单路线/NDJSON行16MiB。NDJSON逐行索引offset与记录哈希，不常驻全部坐标；单文档数组有界解析。拒绝重复对象字段、NaN/Infinity、无效编码和过深JSON，不容忍破损行后偷偷跳过。逐路线继承50,000点及原分类几何预算。源文件扫描后身份、时间戳或内容变化会停止；执行结束核验完整文件哈希，避免混用版本。
+
+`--out`在任何试算前预检已有文件和父目录；报告先写入同目录独占临时文件，写完后用不覆盖的硬链接原子发布，最后清理临时名称。不覆盖输入或竞争创建的文件，失败清理也不删除结果路径上其他进程创建的文件。目标文件系统须支持硬链接（本机NTFS已验证），不支持则报输出错误而不降级为覆盖写入。父目录必须存在；stdout模式不写报告。`elapsed_seconds`不把用户等待确认的时间混入执行估计，另提供包含确认的wall时间。进程时限不是硬内存隔离，估计仍可能受复杂几何、磁盘和系统负载影响。
+
+自包含适配/确认/生命周期测试在 `tests/test_json_route_batch.py`，复制脚本独立运行的真实Yes/No子进程测试在 `tests/test_standalone_recognition.py`。私有导出不提交仓库。
+
 ## P0 已落地范围
 
 - 网页默认仅分析，候选未确认前只提供 JSON 分析报告，不发布转换 GPX/GeoJSON。候选预览不代表已保存结果。

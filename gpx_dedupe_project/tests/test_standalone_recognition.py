@@ -18,14 +18,14 @@ from benchmark_loops import gpx_bytes, synthetic_cases
 
 
 class StandaloneRecognitionTests(unittest.TestCase):
-    def run_python(self, directory, *args):
+    def run_python(self, directory, *args, input_text=None):
         env = os.environ.copy()
         # Neither the repository nor the source script directory may leak into
         # Python's search path through inherited shell configuration.
         env.pop('PYTHONPATH', None)
         result = subprocess.run(
             [sys.executable, '-I', '-B', '-X', 'utf8', *map(str, args)], cwd=directory,
-            env=env, capture_output=True, encoding='utf-8', timeout=60)
+            env=env, input=input_text, capture_output=True, encoding='utf-8', timeout=60)
         return result
 
     def copy_script(self, directory):
@@ -136,6 +136,79 @@ print(json.dumps(results, allow_nan=False))
             self.assertEqual(result.returncode, 2)
             self.assertEqual({p.name for p in Path(directory).iterdir()},
                              {script.name, source.name, output.name})
+
+    def test_copied_script_reads_json_by_id_range_and_all_with_confirmation(self):
+        from test_json_route_batch import route
+        records = [route(f'{i:03d}')[0] for i in range(1,5)]
+        with tempfile.TemporaryDirectory(prefix='gpx-json-isolation-') as directory:
+            script = self.copy_script(directory)
+            source = Path(directory)/'多路线.export.json'
+            source.write_text('\n'.join(json.dumps(r) for r in records), encoding='utf-8')
+            before = source.read_bytes()
+            single = self.run_python(directory, script, source, '--top-route-id', '002')
+            self.assertEqual(single.returncode, 0, single.stderr)
+            data = json.loads(single.stdout)
+            self.assertEqual(data, [{'topRouteId': '002', 'category': 2}])
+            self.assertNotIn('Yes/No', single.stderr)
+            out = Path(directory)/'result.json'
+            no = self.run_python(directory, script, source, '--start', '2', '--count', '2',
+                                 '--out', out, input_text='No\n')
+            self.assertEqual(no.returncode, 3, no.stderr)
+            self.assertEqual(no.stdout, '')
+            self.assertFalse(out.exists())
+            self.assertIn('Yes/No', no.stderr)
+            yes = self.run_python(directory, script, source, '--start', '2', '--count', '2', input_text='Yes\n')
+            self.assertEqual(yes.returncode, 0, yes.stderr)
+            data = json.loads(yes.stdout)
+            self.assertEqual(data, [{'topRouteId': '002', 'category': 2},
+                                    {'topRouteId': '003', 'category': 2}])
+            self.assertIn('2/2', yes.stderr)
+            self.assertNotIn('\r', yes.stderr)
+            all_result = self.run_python(directory, script, source, '--all', input_text='Yes\n')
+            self.assertEqual(all_result.returncode, 0, all_result.stderr)
+            self.assertEqual(len(json.loads(all_result.stdout)),4)
+            detailed = self.run_python(directory, script, source, '--top-route-id', '002', '--detailed')
+            self.assertEqual(detailed.returncode, 0, detailed.stderr)
+            self.assertEqual(json.loads(detailed.stdout)['processed_count'], 1)
+            eof = self.run_python(directory, script, source, '--all', input_text='')
+            self.assertEqual(eof.returncode, 3)
+            self.assertEqual(eof.stdout, '')
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual({p.name for p in Path(directory).iterdir()}, {source.name, script.name})
+
+    def test_json_cli_output_preflight_and_invalid_selection_do_not_run_pilots(self):
+        from test_json_route_batch import route
+        with tempfile.TemporaryDirectory(prefix='gpx-json-cli-errors-') as directory:
+            script = self.copy_script(directory)
+            source = Path(directory)/'routes.json'
+            source.write_text(json.dumps([route('001')[0],route('002')[0]]))
+            out = Path(directory)/'exists.json'
+            out.write_text('original')
+            result = self.run_python(directory, script, source, '--all', '--out', out, input_text='Yes\n')
+            self.assertEqual(result.returncode,2)
+            self.assertNotIn('试算',result.stderr)
+            self.assertEqual(out.read_text(),'original')
+            result = self.run_python(directory, script, source, '--start', '1', input_text='Yes\n')
+            self.assertEqual(result.returncode,2)
+            self.assertNotIn('试算',result.stderr)
+            result = self.run_python(directory, script, source, '--all', '--radius','12',input_text='Yes\n')
+            self.assertEqual(result.returncode,2)
+            self.assertNotIn('试算',result.stderr)
+
+    def test_auto_format_does_not_decode_a_truncated_utf8_prefix(self):
+        from test_json_route_batch import route
+        with tempfile.TemporaryDirectory(prefix='gpx-json-utf8-prefix-') as directory:
+            script = self.copy_script(directory)
+            source = Path(directory)/'export.data'
+            prefix = b'{"description":"' + b'a' * (4095-len(b'{"description":"'))
+            record = route('001')[0]
+            record.pop('description')
+            payload = json.dumps(record, ensure_ascii=False).encode('utf-8')
+            source.write_bytes(prefix + '中'.encode('utf-8') + b'",' + payload[1:])
+            self.assertEqual(source.read_bytes()[4095:4098], '中'.encode('utf-8'))
+            result = self.run_python(directory, script, source, '--top-route-id', '001')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), [{'topRouteId':'001','category':2}])
 
     def test_package_import_needs_no_legacy_or_plotting_modules(self):
         # Public package-style imports used by Python clients must stay valid,
