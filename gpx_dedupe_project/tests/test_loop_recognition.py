@@ -158,7 +158,7 @@ class LoopRecognitionTests(unittest.TestCase):
         points = np.asarray([[0, 0], [10, 0], [10, 0], [20, 0], [10, 0], [0, 0],
                              [0, 100], [10, 100], [0, 100], [50, 200]], dtype=float)
         coords = points.copy()
-        d = lr.rd.arclength(points)
+        d = lr._arclength(points)
         annotations, limits = lr._exact_retraces(coords, d, lr.LoopRecognitionConfig())
         self.assertEqual(limits, [])
         self.assertEqual([(a['start_vertex_index'], a['turn_vertex_index'], a['end_vertex_index']) for a in annotations], [(0, 3, 5), (6, 7, 8)])
@@ -166,7 +166,7 @@ class LoopRecognitionTests(unittest.TestCase):
         self.assertAlmostEqual(summary['retrace_union_length_m'], 60.)
         # A larger palindrome contains smaller palindromes: count its travel once.
         nested = np.asarray([[0, 0], [10, 0], [0, 0], [10, 0], [0, 0]], dtype=float)
-        d = lr.rd.arclength(nested)
+        d = lr._arclength(nested)
         annotations, limits = lr._exact_retraces(nested, d, lr.LoopRecognitionConfig())
         self.assertEqual(len(annotations), 1)
         self.assertEqual(annotations[0]['length_m'], 40.)
@@ -176,20 +176,20 @@ class LoopRecognitionTests(unittest.TestCase):
         for points in ([[0, 0], [10, 0], [20, 0], [10, .01], [0, .01]],
                        [[0, 0], [10, 0], [20, 0], [15, 0], [0, 0]]):
             coords = np.asarray(points, dtype=float)
-            annotations, limits = lr._exact_retraces(coords, lr.rd.arclength(coords), lr.LoopRecognitionConfig())
+            annotations, limits = lr._exact_retraces(coords, lr._arclength(coords), lr.LoopRecognitionConfig())
             self.assertEqual(annotations, [])
             self.assertEqual(limits, [])
 
     def test_annotation_budgets_are_separate_from_strict_completeness(self):
         coords = np.asarray([[0, 0], [10, 0], [20, 0], [10, 0], [0, 0]], dtype=float)
-        d = lr.rd.arclength(coords)
+        d = lr._arclength(coords)
         annotations, limits = lr._exact_retraces(coords, d, lr.LoopRecognitionConfig(max_spatial_pairs=1))
         self.assertEqual(annotations, [])
         self.assertIn('retrace_comparison_limit', limits)
         summary = lr._route_summary(coords, d, 0., annotations, limits, lr.LoopRecognitionConfig())
         self.assertEqual(summary['annotation_status'], 'partial')
         repeated = np.asarray([[0, 0], [10, 0], [0, 0], [0, 100], [10, 100], [0, 100], [50, 200]], dtype=float)
-        annotations, limits = lr._exact_retraces(repeated, lr.rd.arclength(repeated), lr.LoopRecognitionConfig(max_occurrences=1))
+        annotations, limits = lr._exact_retraces(repeated, lr._arclength(repeated), lr.LoopRecognitionConfig(max_occurrences=1))
         self.assertEqual(len(annotations), 1)
         self.assertIn('retrace_annotation_limit', limits)
 
@@ -236,7 +236,7 @@ class LoopRecognitionTests(unittest.TestCase):
 
     def test_summary_uses_union_and_distinguishes_tolerance_from_exact_closure(self):
         coords = np.asarray([[0, 0], [20, 0], [40, 0], [60, 0], [80, 0], [100, 0]], dtype=float)
-        d = lr.rd.arclength(coords)
+        d = lr._arclength(coords)
         annotations = [{'id': 'a', 'source_interval': {'start': lr._position(0., d), 'end': lr._position(60., d)}},
                        {'id': 'b', 'source_interval': {'start': lr._position(40., d), 'end': lr._position(80., d)}}]
         summary = lr._route_summary(coords, d, 10., annotations, [], lr.LoopRecognitionConfig())

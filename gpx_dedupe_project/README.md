@@ -27,13 +27,35 @@
 
 Python API（`loop_recognition.py`）：`recognize_loops(path, config=None)` / `recognize_bytes(raw, config=None, source_name='track.gpx')` 返回 JSON 兼容对象，本身不写文件、不调用 legacy 裁切或 plans。`POST /api/recognize-loops` 接受 `{file_id, radius}`，只注册识别报告下载；不能把识别 ID 交给 `/api/apply` 执行转换。
 
-在项目目录执行：
+### 单文件独立运行
+
+只需复制 `loop_recognition.py` 到任意目录，无需本仓库其他脚本、网页、配置或默认 GPX 目录。运行环境为 **Python 3.10+**，直接依赖仅 **NumPy、SciPy、pyproj**；不是零依赖可执行程序。它不导入 `route_dedupe.py`、`route_plans.py`、Web 服务或 matplotlib。网页继续调用同一识别模块，报告2.1与识别规则保持不变。
+
+在目标环境一次性安装依赖（联网安装，脚本本身不下载依赖）：
 
 ```bash
-python loop_recognition.py examples/34044834.gpx
-# 可选保存到一个不存在的文件；绝不覆盖已有文件
-python loop_recognition.py examples/34044834.gpx --out recognition.json
+python -m pip install "numpy>=2.0,<3" "scipy>=1.14,<2" "pyproj>=3.7,<4"
+```
+
+把 GPX 保存在数据目录，脚本保存在可信目录，然后传入路径：
+
+```bash
+python loop_recognition.py "D:/data/路线.gpx"
+python loop_recognition.py "D:/data/路线.gpx" --out "D:/results/recognition.json"
+python loop_recognition.py "D:/data/路线.gpx" --radius 12 --spacing 8
+```
+
+不加 `--out` 时完整JSON写到标准输出；加上后只创建一个不存在的UTF-8报告文件，父目录需已存在，不覆盖原GPX或已有文件。成功退出0，非法参数/输入/输出失败退出2；计算预算不足可能成功返回带partial诊断的报告，需要检查报告而不是只看退出码。Windows管道如需统一UTF-8，可用 `python -X utf8 loop_recognition.py ...`。
+
+同目录Python代码也可 `from loop_recognition import recognize_loops` 调用。单文件独立不代表可直接绕过Python隔离模式的导入搜索规则：`python -I loop_recognition.py input.gpx` 可以直接运行，但 `-I -c "import loop_recognition"` 不会自动搜索当前目录。
+
+自动化保证位于 `tests/test_standalone_recognition.py`：只复制这一脚本到临时空目录、移除PYTHONPATH、使用 `-I -B` 隔离进程，主动阻止旧项目/绘图库导入，对比19个合成样本完整JSON，并检查中文路径、标准输出、报告写入、拒绝覆盖、错误退出和输入哈希不变。未创建cleaned轨迹。未来若新增项目文件依赖，隔离测试必须失败。
+
+在仓库内运行基准：
+
+```bash
 python tests/benchmark_loops.py
+python -m unittest discover -s tests -p "test_standalone_recognition.py" -v
 ```
 
 识别基准是独立的无噪声合成集合，标准输出含逐类环数/经过数、来源边界误差、未知与错误；不是后文 352 个 legacy 样本的替代，也不代表真实道路准确率。识别测试位于 `tests/test_loop_recognition.py`；浏览器拦截测试为 `tests/browser_loops.cjs`。共享走廊目前只有几何接触关系，不提供可信共享道路 ID；自动噪声估计、完整连续走廊匹配和真实道路身份仍未完成。

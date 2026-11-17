@@ -1,5 +1,7 @@
-"""Read-only, geometry-only chronological GPX loop decomposition.
+"""Standalone, read-only GPX loop recognition (Python 3.10+).
 
+Requires numpy, scipy and pyproj; no other project files or web server are needed.
+Run: python loop_recognition.py input.gpx [--out new-report.json]
 This is not a road-network reconstruction or an enumeration of all simple cycles.
 Source intervals always refer to the unmodified input, including fractional edges.
 """
@@ -15,11 +17,38 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial import cKDTree
+from pyproj import Transformer
 
-try:
-    from . import route_dedupe as rd
-except ImportError:
-    import route_dedupe as rd
+
+GPX_NAMESPACE = 'http://www.topografix.com/GPX/1/1'
+
+
+def _tag(name):
+    return f'{{{GPX_NAMESPACE}}}{name}'
+
+
+def _projection(lonlat):
+    # Keep the same local UTM selection and arithmetic as the original engine.
+    # Input span/polar admission remains in _load below.
+    meanlon, meanlat = np.mean(lonlat, axis=0)
+    zone = min(60, max(1, int((meanlon + 180) // 6) + 1))
+    epsg = (32600 if meanlat >= 0 else 32700) + zone
+    forward = Transformer.from_crs('EPSG:4326', f'EPSG:{epsg}', always_xy=True)
+    xy = np.column_stack(forward.transform(lonlat[:, 0], lonlat[:, 1]))
+    return xy, epsg
+
+
+def _arclength(xy):
+    return np.r_[0., np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+
+
+def _tangent(points):
+    delta = np.empty_like(points)
+    window = min(3, max(1, len(points) // 8))
+    for index in range(len(points)):
+        delta[index] = points[min(len(points) - 1, index + window)] - points[max(0, index - window)]
+    norm = np.linalg.norm(delta, axis=1)
+    return delta / np.maximum(norm[:, None], 1.e-9)
 
 
 class RecognitionError(ValueError):
@@ -74,10 +103,10 @@ def _load(raw, cfg):
         raise RecognitionError('不支持 DTD、实体声明或含 NUL 的 XML。')
     try:
         root = ET.fromstring(raw)
-        segs = root.findall('.//' + rd.tag('trkseg'))
+        segs = root.findall('.//' + _tag('trkseg'))
         if len(segs) != 1:
             raise RecognitionError('环识别仅支持恰好一个 trkseg，不会跨断点连接。')
-        points = segs[0].findall(rd.tag('trkpt'))
+        points = segs[0].findall(_tag('trkpt'))
         if not 3 <= len(points) <= cfg.max_points:
             raise RecognitionError('轨迹点数超出支持范围。')
         coords = np.asarray([[float(p.attrib['lon']), float(p.attrib['lat'])] for p in points])
@@ -85,7 +114,7 @@ def _load(raw, cfg):
                 or np.any(np.abs(coords[:, 1]) > 90)):
             raise RecognitionError('经纬度必须是有效的有限数值。')
         for point in points:
-            elevation = point.findtext(rd.tag('ele'))
+            elevation = point.findtext(_tag('ele'))
             if elevation is not None and not math.isfinite(float(elevation)):
                 raise RecognitionError('海拔必须是有限数值。')
     except RecognitionError:
@@ -95,8 +124,8 @@ def _load(raw, cfg):
     if (np.ptp(coords[:, 0]) > 6 or np.ptp(coords[:, 1]) > 6
             or np.max(coords[:, 1]) > 84 or np.min(coords[:, 1]) < -80):
         raise RecognitionError('轨迹超出局部 UTM 支持范围；不支持跨日期变更线或大跨度轨迹。')
-    xy, _, epsg = rd.projection(coords)
-    distances = rd.arclength(xy)
+    xy, epsg = _projection(coords)
+    distances = _arclength(xy)
     if not np.isfinite(xy).all() or not math.isfinite(float(distances[-1])) or distances[-1] <= 0:
         raise RecognitionError('轨迹投影或长度无效。')
     return coords, xy, distances, epsg
@@ -291,7 +320,7 @@ def _intervals(edges, s, distances):
 def _shape(points, step, maximum=1024):
     """Closed representation used only for ordered comparison, never output as a GPX."""
     closed = np.vstack([points, points[:1]]) if np.linalg.norm(points[-1] - points[0]) > 1e-8 else points
-    d = rd.arclength(closed)
+    d = _arclength(closed)
     unique = np.r_[True, np.diff(d) > 1e-7]
     d, closed = d[unique], closed[unique]
     n = max(32, min(maximum, int(math.ceil(d[-1] / step))))
@@ -315,7 +344,7 @@ def _compare(reference, points, cfg):
             if np.quantile(error, .9) > cfg.match_radius_m or np.mean(error <= cfg.match_radius_m) < .9:
                 continue
             # A sustained separate band is evidence against merging nearby roads.
-            heading = rd.tangent(reference)
+            heading = _tangent(reference)
             lateral = heading[:, 0] * residual[:, 1] - heading[:, 1] * residual[:, 0]
             median = float(np.median(lateral))
             stable = float(np.mean(lateral * median > 0))
@@ -342,7 +371,7 @@ def _continuous_record(start, end, s, q, distances, xy, cfg, cross_s, internal):
     width = float(np.ptp(centered @ axes[-1]))
     # Ordered reverse correspondence detects curved pure retraces as well as
     # straight ones; it is evidence, not an assertion of physical road identity.
-    d = rd.arclength(points)
+    d = _arclength(points)
     probes = np.linspace(0, d[-1], min(301, max(21, len(points))))
     p = np.column_stack([np.interp(probes, d, points[:, axis]) for axis in range(2)])
     reverse_fraction = float(np.mean(np.linalg.norm(p - p[::-1], axis=1) <= cfg.match_radius_m))
