@@ -105,6 +105,38 @@ print(json.dumps(results, allow_nan=False))
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
             self.assertEqual({p.name for p in Path(directory).iterdir()}, {script.name, source.name})
 
+    def test_copied_cli_classifies_without_project_or_label_files(self):
+        cases = list(synthetic_cases())
+        names = ['single_loop', 'open_route', 'figure_eight']
+        with tempfile.TemporaryDirectory(prefix='gpx-classify-cli-') as directory:
+            script = self.copy_script(directory)
+            source = Path(directory) / '整体路线.gpx'
+            output = Path(directory) / '整体类别.json'
+            for name in names:
+                case = next(case for case in cases if case.category == name)
+                raw, _ = gpx_bytes(case.points)
+                source.write_bytes(raw)
+                expected = lr.classify_route_bytes(raw)
+                result = self.run_python(directory, script, source, '--classify')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), expected)
+                self.assertEqual(source.read_bytes(), raw)
+            source.write_bytes(b'invalid GPX')
+            result = self.run_python(directory, script, source, '--classify', '--out', output)
+            self.assertEqual(result.returncode, 2)
+            failure = json.loads(output.read_text(encoding='utf-8'))
+            self.assertEqual(failure['category'], 1)
+            self.assertEqual(failure['reason_code'], 'invalid_input')
+            saved = output.read_bytes()
+            again = self.run_python(directory, script, source, '--classify', '--out', output)
+            self.assertEqual(again.returncode, 2)
+            self.assertEqual(output.read_bytes(), saved)
+            result = self.run_python(directory, script, Path(directory)/'missing.gpx', '--classify')
+            self.assertEqual(json.loads(result.stdout)['category'], 1)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual({p.name for p in Path(directory).iterdir()},
+                             {script.name, source.name, output.name})
+
     def test_package_import_needs_no_legacy_or_plotting_modules(self):
         # Public package-style imports used by Python clients must stay valid,
         # not only the standalone CLI path used by the copied-file tests.

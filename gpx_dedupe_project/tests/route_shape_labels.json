@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "source": "User-provided whole-route visual labels; development/acceptance set, not independent accuracy evidence.",
+  "labels": {
+    "20117472.gpx": 2, "17244061.gpx": 2, "20118969.gpx": 2, "20119057.gpx": 2,
+    "21837152.gpx": 2, "24449017.gpx": 2, "24449025.gpx": 2, "24449063.gpx": 2,
+    "24517816.gpx": 2, "24519590.gpx": 2, "31622110.gpx": 2, "31622124.gpx": 2,
+    "31622136.gpx": 2, "31622176.gpx": 2, "31622293.gpx": 2, "31622356.gpx": 2,
+    "31622615.gpx": 2, "31622825.gpx": 2, "34008950.gpx": 2, "34044351.gpx": 2,
+    "34044456.gpx": 2, "34044541.gpx": 2, "34044549.gpx": 2, "34044834.gpx": 2,
+    "34046180.gpx": 2, "36961166.gpx": 2, "36970219.gpx": 2, "36970261.gpx": 2,
+    "36999336.gpx": 2, "36999398.gpx": 2, "37000032.gpx": 2, "37000394.gpx": 2,
+    "37002031.gpx": 2, "37002064.gpx": 2, "37002163.gpx": 2, "37002172.gpx": 2,
+    "37002393.gpx": 2, "37002465.gpx": 2,
+    "20117504.gpx": 3, "20117491.gpx": 3, "31622376.gpx": 3, "31622382.gpx": 3,
+    "34044188.gpx": 3, "34044852.gpx": 3, "37000114.gpx": 3, "37002374.gpx": 3,
+    "14604657.gpx": 4, "24517869.gpx": 4, "24519669.gpx": 4,
+    "31622779.gpx": 4, "34044479.gpx": 4, "37000204.gpx": 4
+  },
+  "unlabeled": ["14572134.gpx", "37000080.gpx"],
+  "calibration_excluded": [
+    "24449063.gpx", "31622124.gpx", "34044351.gpx", "37002064.gpx",
+    "31622376.gpx", "34044852.gpx", "24519669.gpx", "37000204.gpx"
+  ],
+  "split_caveat": "All 52 routes had exploratory topology statistics inspected before this split. Calibration-excluded is a prospective rule-tuning guard only, NOT an unseen or independent test set."
+}

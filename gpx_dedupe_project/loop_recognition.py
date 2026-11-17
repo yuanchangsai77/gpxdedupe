@@ -8,7 +8,7 @@ Source intervals always refer to the unmodified input, including fractional edge
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 import hashlib
 import json
 import math
@@ -686,21 +686,883 @@ def recognize_loops(path, config=None):
     return recognize_bytes(raw, cfg, Path(path).name)
 
 
+@dataclass(frozen=True)
+class RouteShapeConfig:
+    """Whole-route visual shape settings, independent of strict-loop settings."""
+    max_input_bytes: int = 16 * 1024 * 1024
+    max_points: int = 50_000
+    max_candidate_pairs: int = 250_000
+    max_graph_edges: int = 100_000
+    max_face_steps: int = 400_000
+    min_resolved_length_m: float = 80.
+    ambiguous_corridor_width_m: float = 12.
+    vertex_on_edge_tolerance_m: float = .05
+    dominant_ring_share: float = .60
+    secondary_ring_share: float = .15
+    internal_structure_share: float = .12
+    minimum_cyclic_share: float = .50
+    corridor_secondary_ratio: float = .35
+    corridor_main_share: float = .50
+    corridor_bridge_share: float = .15
+    significant_block_share: float = .08
+    maximum_unresolved_share: float = .20
+    maximum_crossing_share: float = .05
+    crossing_neighborhood_m: float = 40.
+    near_closure_radius_m: float = 25.
+    near_closure_max_fraction: float = .01
+
+
+class _ShapeFailure(Exception):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
+def _shape_config(config):
+    if config is None:
+        config = RouteShapeConfig()
+    if type(config) is dict:
+        try:
+            config = RouteShapeConfig(**config)
+        except TypeError as exc:
+            raise RecognitionError('整体分类配置字段无效。') from exc
+    if not isinstance(config, RouteShapeConfig):
+        raise RecognitionError('整体分类配置类型无效。')
+    defaults = RouteShapeConfig()
+    for field in fields(config):
+        value = getattr(config, field.name)
+        if field.name.startswith('max_'):
+            if type(value) is not int or not 1 <= value <= getattr(defaults, field.name):
+                raise RecognitionError(f'{field.name} 超出允许的正整数上限。')
+        elif type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise RecognitionError(f'{field.name} 必须是正的有限数值。')
+    if not .001 <= config.vertex_on_edge_tolerance_m <= .2:
+        raise RecognitionError('原始顶点在线段上的数值容差支持0.001–0.2米。')
+    if not 20 <= config.min_resolved_length_m <= 100_000:
+        raise RecognitionError('最小可分辨长度超出支持范围。')
+    if not 1 <= config.ambiguous_corridor_width_m <= 30:
+        raise RecognitionError('未分辨走廊宽度支持1–30米。')
+    if not 1 <= config.crossing_neighborhood_m <= 200:
+        raise RecognitionError('交叉影响邻域支持1–200米。')
+    if not 0 < config.near_closure_radius_m <= 100:
+        raise RecognitionError('整体近闭合半径支持0–100米（不含0）。')
+    if any(not 0 < getattr(config, name) < 1 for name in (
+            'dominant_ring_share', 'secondary_ring_share',
+            'internal_structure_share', 'minimum_cyclic_share', 'corridor_secondary_ratio',
+            'significant_block_share', 'maximum_unresolved_share', 'maximum_crossing_share',
+            'corridor_main_share', 'corridor_bridge_share', 'near_closure_max_fraction')):
+        raise RecognitionError('整体形态比例门槛必须介于0与1之间。')
+    return config
+
+
+def _observed_shape_graph(coords, xy, cfg):
+    """Exact observation identities with bounded vertex-on-edge subdivision.
+
+    No proximity clustering: two close roads stay distinct. Existing vertices
+    may subdivide a geometrically identical straight segment, allowing different
+    sampling densities without manufacturing arbitrary intersection junctions.
+    """
+    lookup, vertices, visits = {}, [], []
+    for coord, point in zip(coords, xy):
+        key = tuple(coord)
+        if key not in lookup:
+            lookup[key] = len(vertices)
+            vertices.append(point)
+        visits.append(lookup[key])
+    vertices = np.asarray(vertices)
+    tree = cKDTree(vertices)
+    segments = {}
+    for a, b in zip(visits[:-1], visits[1:]):
+        if a != b:
+            key = (min(a, b), max(a, b))
+            segments[key] = segments.get(key, 0) + 1
+    edges = {}
+    incident = [[] for _ in vertices]
+    for a, b in segments:
+        incident[a].append(b)
+        incident[b].append(a)
+    budget = 0
+    for (a, b), count in segments.items():
+        delta = vertices[b] - vertices[a]
+        length = float(np.linalg.norm(delta))
+        midpoint = (vertices[a] + vertices[b]) / 2
+        radius = length / 2 + cfg.vertex_on_edge_tolerance_m
+        size = int(tree.query_ball_point(midpoint, radius, return_length=True))
+        budget += size
+        if budget > cfg.max_candidate_pairs:
+            raise _ShapeFailure('resource_limit', '原始线段细分候选超过上限。')
+        candidates = np.asarray(tree.query_ball_point(midpoint, radius), dtype=int)
+        offset = vertices[candidates] - vertices[a]
+        phase = offset @ delta / (length * length)
+        residual = np.linalg.norm(offset - phase[:, None] * delta, axis=1)
+        good = (phase > 1e-9) & (phase < 1 - 1e-9) & (residual <= cfg.vertex_on_edge_tolerance_m)
+        middle = []
+        for fraction, node in zip(phase[good], candidates[good]):
+            # Subdivision may normalize a differently sampled SAME corridor.
+            # A vertex merely lying on another path's crossing is not an
+            # observed visit by that path: require incident collinear support.
+            supported = False
+            for neighbor in incident[node]:
+                budget += 1
+                if budget > cfg.max_candidate_pairs:
+                    raise _ShapeFailure('resource_limit', '原始走廊细分证据超过上限。')
+                vector = vertices[neighbor] - vertices[node]
+                norm = float(np.linalg.norm(vector))
+                if norm <= 1e-9:
+                    continue
+                sine = abs(float(delta[0] * vector[1] - delta[1] * vector[0])) / (length * norm)
+                if sine <= min(.01, cfg.vertex_on_edge_tolerance_m / min(norm, length)):
+                    supported = True
+                    break
+            if supported:
+                middle.append((float(fraction), int(node)))
+        middle.sort()
+        chain = [a, *[node for _, node in middle], b]
+        for u, v in zip(chain[:-1], chain[1:]):
+            if u == v:
+                continue
+            key = (min(u, v), max(u, v))
+            if key not in edges:
+                edges[key] = [float(np.linalg.norm(vertices[v] - vertices[u])), 0]
+            edges[key][1] += count
+            if len(edges) > cfg.max_graph_edges:
+                raise _ShapeFailure('resource_limit', '整体形态观测边超过上限。')
+    pairs = list(edges)
+    weights = np.asarray([edges[pair][0] for pair in pairs])
+    counts = np.asarray([edges[pair][1] for pair in pairs])
+    adjacency = [[] for _ in vertices]
+    for edge, (a, b) in enumerate(pairs):
+        adjacency[a].append((b, edge))
+        adjacency[b].append((a, edge))
+    return vertices, pairs, weights, counts, adjacency, budget
+
+
+def _shape_blocks(adjacency):
+    """Iterative Tarjan edge-biconnected blocks; never enumerate simple cycles."""
+    discovery, low, parent = {}, {}, {}
+    blocks, edge_stack = [], []
+    clock = 0
+    for root in range(len(adjacency)):
+        if root in discovery:
+            continue
+        discovery[root] = low[root] = clock
+        clock += 1
+        stack = [(root, iter(adjacency[root]))]
+        while stack:
+            node, neighbors = stack[-1]
+            try:
+                other, edge = next(neighbors)
+            except StopIteration:
+                stack.pop()
+                if node in parent:
+                    previous, previous_edge = parent[node]
+                    low[previous] = min(low[previous], low[node])
+                    if low[node] >= discovery[previous]:
+                        component = []
+                        while edge_stack:
+                            last = edge_stack.pop()
+                            component.append(last)
+                            if last == previous_edge:
+                                break
+                        blocks.append(component)
+                continue
+            if node in parent and edge == parent[node][1]:
+                continue
+            if other not in discovery:
+                parent[other] = (node, edge)
+                discovery[other] = low[other] = clock
+                clock += 1
+                edge_stack.append(edge)
+                stack.append((other, iter(adjacency[other])))
+            elif discovery[other] < discovery[node]:
+                low[node] = min(low[node], discovery[other])
+                edge_stack.append(edge)
+    return blocks
+
+
+def _block_boundary(block, vertices, pairs, weights, cfg, work):
+    """Bounded geometric half-edge boundary of one observed cyclic block.
+
+    This is a visual envelope, NOT a traversed occurrence or verified road face.
+    Unnoded crossings are not turned into junctions. Self-crossing/degenerate
+    envelopes are flagged by inconsistent signed faces, not silently polygonized.
+    """
+    neighbors = {}
+    for edge in block:
+        a, b = pairs[edge]
+        neighbors.setdefault(a, []).append(b)
+        neighbors.setdefault(b, []).append(a)
+    for a in neighbors:
+        neighbors[a].sort(key=lambda b: (math.atan2(vertices[b, 1] - vertices[a, 1],
+                                                   vertices[b, 0] - vertices[a, 0]), b))
+    successor = {}
+    for node, ordered in neighbors.items():
+        for index, previous in enumerate(ordered):
+            successor[(previous, node)] = (node, ordered[(index - 1) % len(ordered)])
+    seen, faces = set(), []
+    for start in sorted(successor):
+        if start in seen:
+            continue
+        edge, face = start, []
+        while edge not in seen:
+            work[0] += 1
+            if work[0] > cfg.max_face_steps:
+                raise _ShapeFailure('resource_limit', '整体形态边界计算超过上限。')
+            seen.add(edge)
+            face.append(edge[0])
+            edge = successor[edge]
+        if edge != start:
+            raise _ShapeFailure('ambiguous_shape', '观测图边界无法一致闭合。')
+        points = vertices[face]
+        local = points - points[0]
+        signed_area = float(np.sum(local[:, 0] * np.roll(local[:, 1], -1)
+                                   - local[:, 1] * np.roll(local[:, 0], -1)) / 2)
+        faces.append((signed_area, face))
+    # Exterior is the clockwise (negative area) half-edge boundary.
+    area, boundary = min(faces, key=lambda item: item[0])
+    if abs(area) <= 1e-6:
+        raise _ShapeFailure('ambiguous_shape', '环形部分退化或存在未分辨交叉。')
+    boundary_set = {tuple(sorted((a, b))) for a, b in zip(boundary, boundary[1:] + boundary[:1])}
+    perimeter = sum(weights[e] for e in block if pairs[e] in boundary_set)
+    return {'edges': block, 'nodes': list(neighbors), 'boundary_nodes': boundary,
+            'length_m': float(sum(weights[e] for e in block)), 'boundary_m': float(perimeter),
+            'area_m2': abs(area), 'cycle_rank': len(block) - len(neighbors) + 1,
+            'internal_share': max(0., 1 - perimeter / sum(weights[e] for e in block))}
+
+
+def _canonical_shape_graph(vertices, pairs, weights, counts, adjacency, cfg):
+    """Collapse only degree-two, same-count straight chains for visual analysis.
+
+    A bounded iterative polyline simplification removes collinear recording
+    points, so adjacency exemptions and crossing evidence have physical rather
+    than input-segment scale. Junctions and genuine corners remain vertices.
+    """
+    visited, canonical, work = set(), [], 0
+    for first_edge, (first_node, _) in enumerate(pairs):
+        if first_edge in visited:
+            continue
+        # Prefer an actual junction as the beginning of an open chain.
+        a, b = pairs[first_edge]
+        start = a if len(adjacency[a]) != 2 else b
+        path, path_edges = [start], []
+        node, edge = start, first_edge
+        while edge not in visited:
+            visited.add(edge)
+            path_edges.append(edge)
+            u, v = pairs[edge]
+            other = v if node == u else u
+            path.append(other)
+            if len(adjacency[other]) != 2 or other == start:
+                break
+            following = [(n, e) for n, e in adjacency[other] if e != edge]
+            if counts[following[0][1]] != counts[edge]:
+                break
+            node, edge = other, following[0][1]
+        # Open chains started in their middle also extend backwards.
+        if len(adjacency[start]) == 2 and path[-1] != start:
+            remaining = [e for _, e in adjacency[start] if e not in visited]
+            if remaining and counts[remaining[0]] == counts[path_edges[0]]:
+                reverse_path, reverse_edges = [start], []
+                node, edge = start, remaining[0]
+                while edge not in visited:
+                    visited.add(edge)
+                    reverse_edges.append(edge)
+                    u, v = pairs[edge]
+                    other = v if node == u else u
+                    reverse_path.append(other)
+                    if len(adjacency[other]) != 2:
+                        break
+                    next_edge = next(e for _, e in adjacency[other] if e != edge)
+                    if counts[next_edge] != counts[edge]:
+                        break
+                    node, edge = other, next_edge
+                path = reverse_path[:0:-1] + path
+                path_edges = reverse_edges[::-1] + path_edges
+        if path[0] == path[-1] and len(path) > 3:
+            # A closed chain has no intrinsic first sample. Anchor at a genuine
+            # corner, deterministically in geometry space, not at the first edge
+            # supplied by the caller. Rotate edge provenance with the nodes.
+            body = path[:-1]
+            polygon = vertices[body]
+            incoming = polygon - np.roll(polygon, 1, axis=0)
+            outgoing = np.roll(polygon, -1, axis=0) - polygon
+            cosines = np.sum(incoming * outgoing, axis=1) / np.maximum(
+                np.linalg.norm(incoming, axis=1) * np.linalg.norm(outgoing, axis=1), 1e-12)
+            anchor = min(range(len(body)), key=lambda k: (
+                round(float(cosines[k]), 6), float(polygon[k, 0]), float(polygon[k, 1])))
+            body = body[anchor:] + body[:anchor]
+            path = body + body[:1]
+            path_edges = path_edges[anchor:] + path_edges[:anchor]
+        elif tuple(vertices[path[-1]]) < tuple(vertices[path[0]]):
+            path.reverse()
+            path_edges.reverse()
+        keep = {0, len(path) - 1}
+        pending = [(0, len(path) - 1)]
+        while pending:
+            lo, hi = pending.pop()
+            if hi <= lo + 1:
+                continue
+            points = vertices[path[lo + 1:hi]]
+            work += len(points)
+            if work > cfg.max_face_steps:
+                raise _ShapeFailure('resource_limit', '共线观测链归一化超过上限。')
+            origin, end = vertices[path[lo]], vertices[path[hi]]
+            vector = end - origin
+            norm2 = float(vector @ vector)
+            if norm2 <= 1e-12:
+                errors = np.linalg.norm(points - origin, axis=1)
+            else:
+                phase = np.clip((points - origin) @ vector / norm2, 0, 1)
+                errors = np.linalg.norm(points - origin - phase[:, None] * vector, axis=1)
+            index = int(np.argmax(errors))
+            if errors[index] > cfg.vertex_on_edge_tolerance_m:
+                split = lo + 1 + index
+                keep.add(split)
+                pending.extend(((lo, split), (split, hi)))
+        selected = sorted(keep)
+        for lo, hi in zip(selected[:-1], selected[1:]):
+            if path[lo] == path[hi]:
+                continue
+            canonical.append((path[lo], path[hi], float(sum(weights[e] for e in path_edges[lo:hi])),
+                              int(counts[path_edges[lo]])))
+    new_pairs = [(min(a, b), max(a, b)) for a, b, _, _ in canonical]
+    new_weights = np.asarray([w for _, _, w, _ in canonical])
+    new_counts = np.asarray([n for _, _, _, n in canonical])
+    new_adj = [[] for _ in vertices]
+    for edge, (a, b) in enumerate(new_pairs):
+        new_adj[a].append((b, edge))
+        new_adj[b].append((a, edge))
+    return new_pairs, new_weights, new_counts, new_adj
+
+
+def _narrow_edge_interval(origin, direction, length, other_origin, other_delta, other_length, width):
+    """Clip an edge to the other segment's projection and signed-distance band."""
+    axis = other_delta / other_length
+    projection = float(np.dot(origin - other_origin, axis))
+    slope = float(np.dot(direction, axis))
+    normal = np.asarray([-axis[1], axis[0]])
+    lateral = float(np.dot(origin - other_origin, normal))
+    lateral_slope = float(np.dot(direction, normal))
+    lo, hi = 0., length
+    for value, rate, minimum, maximum in ((projection, slope, 0., other_length),
+                                           (lateral, lateral_slope, -width, width)):
+        if abs(rate) < 1e-12:
+            if value < minimum or value > maximum:
+                return None
+        else:
+            first, last = sorted(((minimum - value) / rate, (maximum - value) / rate))
+            lo, hi = max(lo, first), min(hi, last)
+            if hi <= lo:
+                return None
+    return lo, hi
+
+
+def _crossing_chain_ranges(vertices, pairs, lengths, seeds, cfg):
+    """Extend physical neighborhoods across artificial collinear edge breaks.
+
+    Continue only through an unambiguous straight pair, never across a turn or
+    into all branches of a junction. Overlapping ranges are unioned by caller.
+    """
+    incident = [[] for _ in vertices]
+    for edge, (a, b) in enumerate(pairs):
+        incident[a].append(edge)
+        incident[b].append(edge)
+    ranges, work = {}, 0
+    pending = [(edge, position, cfg.crossing_neighborhood_m) for edge, position in seeds]
+    best = {}
+    while pending:
+        edge, position, radius = pending.pop()
+        key = (edge, round(position, 8))
+        if radius <= best.get(key, -1.):
+            continue
+        best[key] = radius
+        work += 1
+        if work > cfg.max_face_steps:
+            raise _ShapeFailure('resource_limit', '交叉物理链邻域传播超过上限。')
+        ranges.setdefault(edge, []).append((max(0., position - radius),
+                                            min(lengths[edge], position + radius)))
+        a, b = pairs[edge]
+        for node, available in ((a, radius - position), (b, radius - (lengths[edge] - position))):
+            if available <= 1e-8:
+                continue
+            other_end = b if node == a else a
+            incoming = vertices[node] - vertices[other_end]
+            candidates = []
+            for following in incident[node]:
+                if following == edge:
+                    continue
+                work += 1
+                if work > cfg.max_face_steps:
+                    raise _ShapeFailure('resource_limit', '交叉物理链邻域传播超过上限。')
+                u, v = pairs[following]
+                target = v if node == u else u
+                outgoing = vertices[target] - vertices[node]
+                norm = float(np.linalg.norm(incoming) * np.linalg.norm(outgoing))
+                if norm > 1e-12 and float(incoming @ outgoing) / norm > .9999:
+                    candidates.append((following, 0. if node == u else float(lengths[following])))
+            if len(candidates) == 1:
+                following, at = candidates[0]
+                pending.append((following, at, available))
+    return ranges
+
+
+def _shape_geometry_guard(vertices, pairs, cfg):
+    """Reject unresolved crossings/close corridors instead of guessing topology.
+
+    Exact shared observations are already nodes. This guard never inserts a
+    connection at an unobserved crossing and never merges nearby parallel roads.
+    """
+    if not pairs:
+        raise _ShapeFailure('ambiguous_shape', '观测几何在当前分辨率下退化，无法判断整体形态。')
+    endpoints = np.asarray(pairs, dtype=int)
+    first, last = vertices[endpoints[:, 0]], vertices[endpoints[:, 1]]
+    delta = last - first
+    lengths = np.linalg.norm(delta, axis=1)
+    centers = (first + last) / 2
+    half = lengths / 2
+    tree = cKDTree(centers)
+    budget = 0
+    close_edges = {}
+    crossing_events = []
+    incident = {}
+    for edge, (a, b) in enumerate(pairs):
+        incident.setdefault(a, []).append((edge, b))
+        incident.setdefault(b, []).append((edge, a))
+    # Repeated sampling can land exactly on BOTH straight-through passes at a
+    # crossing. Coordinate equality alone must not promote such a pass-through
+    # to independently observed O/Q evidence.
+    pass_through = set()
+    for node, arms in incident.items():
+        if len(arms) < 4:
+            continue
+        directions = np.asarray([vertices[b] - vertices[node] for _, b in arms])
+        directions /= np.maximum(np.linalg.norm(directions, axis=1)[:, None], 1e-12)
+        # Extra short branches cannot disable crossing evidence. Look for two
+        # disjoint opposite direction pairs at any degree, using a bounded loop.
+        opposite = []
+        found = False
+        for i in range(len(arms)):
+            if found:
+                break
+            for j in range(i + 1, len(arms)):
+                budget += 1
+                if budget > cfg.max_candidate_pairs:
+                    raise _ShapeFailure('resource_limit', '节点直穿方向核查超过上限。')
+                if float(directions[i] @ directions[j]) >= -.995:
+                    continue
+                for a, b in opposite:
+                    budget += 1
+                    if budget > cfg.max_candidate_pairs:
+                        raise _ShapeFailure('resource_limit', '节点直穿方向核查超过上限。')
+                    if i not in (a, b) and j not in (a, b):
+                        found = True
+                        break
+                if found:
+                    break
+                opposite.append((i, j))
+        if found:
+            pass_through.add(node)
+    max_half = float(half.max())
+    for i, center in enumerate(centers):
+        radius = float(half[i] + max_half + cfg.ambiguous_corridor_width_m)
+        size = int(tree.query_ball_point(center, radius, return_length=True))
+        budget += size
+        if budget > cfg.max_candidate_pairs:
+            raise _ShapeFailure('resource_limit', '交叉与近邻走廊核查超过候选上限。')
+        for j in tree.query_ball_point(center, radius):
+            if j <= i:
+                continue
+            shared = set(pairs[i]) & set(pairs[j])
+            if np.linalg.norm(center - centers[j]) > half[i] + half[j] + cfg.ambiguous_corridor_width_m:
+                continue
+            u, v = delta[i], delta[j]
+            offset = first[j] - first[i]
+            determinant = float(u[0] * v[1] - u[1] * v[0])
+            if abs(determinant) > 1e-8 * lengths[i] * lengths[j]:
+                t = float((offset[0] * v[1] - offset[1] * v[0]) / determinant)
+                w = float((offset[0] * u[1] - offset[1] * u[0]) / determinant)
+                within = -1e-7 <= t <= 1 + 1e-7 and -1e-7 <= w <= 1 + 1e-7
+                interior = 1e-7 < t < 1 - 1e-7 or 1e-7 < w < 1 - 1e-7
+                if within and interior and not shared:
+                    t, w = float(np.clip(t, 0, 1)), float(np.clip(w, 0, 1))
+                    crossing_events.append((i, j, t, w, first[i] + t * u))
+            if abs(float(np.dot(u, v) / (lengths[i] * lengths[j]))) < .95:
+                continue
+            interval_i = _narrow_edge_interval(first[i], u / lengths[i], lengths[i],
+                                               first[j], v, lengths[j], cfg.ambiguous_corridor_width_m)
+            interval_j = _narrow_edge_interval(first[j], v / lengths[j], lengths[j],
+                                               first[i], u, lengths[i], cfg.ambiguous_corridor_width_m)
+            if interval_i is not None and interval_j is not None:
+                lo_i, hi_i = interval_i
+                lo_j, hi_j = interval_j
+                # A shared node excuses only a physical neighborhood, not two
+                # entire long arms of a narrow hairpin/triangle.
+                for node in shared:
+                    if node == pairs[i][0]:
+                        lo_i = max(lo_i, cfg.ambiguous_corridor_width_m)
+                    else:
+                        hi_i = min(hi_i, lengths[i] - cfg.ambiguous_corridor_width_m)
+                    if node == pairs[j][0]:
+                        lo_j = max(lo_j, cfg.ambiguous_corridor_width_m)
+                    else:
+                        hi_j = min(hi_j, lengths[j] - cfg.ambiguous_corridor_width_m)
+                if hi_i > lo_i:
+                    close_edges.setdefault(i, []).append((lo_i, hi_i))
+                if hi_j > lo_j:
+                    close_edges.setdefault(j, []).append((lo_j, hi_j))
+    overlap_length = 0.
+    for intervals in close_edges.values():
+        right = 0.
+        for start, end in sorted(intervals):
+            overlap_length += max(0., end - max(start, right))
+            right = max(right, end)
+    crossing_seeds = [(edge, phase * lengths[edge])
+                      for i, j, t, w, _ in crossing_events for edge, phase in ((i, t), (j, w))]
+    for node in pass_through:
+        crossing_seeds.extend((edge, 0. if pairs[edge][0] == node else float(lengths[edge]))
+                              for edge, _ in incident[node])
+    crossing_ranges = _crossing_chain_ranges(vertices, pairs, lengths, crossing_seeds, cfg)
+    crossing_length = 0.
+    for ranges in crossing_ranges.values():
+        right = 0.
+        for start, end in sorted(ranges):
+            crossing_length += max(0., end - max(right, start))
+            right = max(right, end)
+    return {'pairs': budget, 'near_corridor_length_m': overlap_length,
+            'crossing_length_m': crossing_length, 'crossing_edges': len(crossing_ranges),
+            'crossing_events': crossing_events, 'pass_through_nodes': pass_through}
+
+
+def _interior_bridge_length(main, cyclic_edges, vertices, pairs, weights, cfg, work):
+    """Measure bridge fragments inside the dominant visual boundary, not its Q stem."""
+    if main is None:
+        return 0.
+    polygon = vertices[main['boundary_nodes']]
+    a, b = polygon, np.roll(polygon, -1, axis=0)
+    total = 0.
+    for edge, (u, v) in enumerate(pairs):
+        if edge in cyclic_edges:
+            continue
+        # Require both inner probes to be inside; a boundary departure itself
+        # is not an internal branch, and no point is removed from the source.
+        inside = True
+        for fraction in (.25, .75):
+            work[0] += len(polygon)
+            if work[0] > cfg.max_face_steps:
+                raise _ShapeFailure('resource_limit', '内部枝干位置核查超过上限。')
+            point = vertices[u] * (1 - fraction) + vertices[v] * fraction
+            crosses_y = (a[:, 1] > point[1]) != (b[:, 1] > point[1])
+            selected_a, selected_b = a[crosses_y], b[crosses_y]
+            crosses_x = (selected_a[:, 0] + (point[1] - selected_a[:, 1])
+                         * (selected_b[:, 0] - selected_a[:, 0])
+                         / (selected_b[:, 1] - selected_a[:, 1])) > point[0]
+            if int(crosses_x.sum()) % 2 == 0:
+                inside = False
+                break
+        if inside:
+            total += weights[edge]
+    return float(total)
+
+
+def _split_visual_crossings(vertices, pairs, weights, counts, events, cfg):
+    """Node the drawing for shape hypotheses only, never physical connectivity."""
+    nodes = list(vertices)
+    cuts = {}
+    comparisons = 0
+    for i, j, t, w, point in events:
+        # The same crossing can be reported by several edges; merge numerical
+        # duplicates deterministically without transitive proximity clustering.
+        node = (pairs[i][0] if t <= 1e-7 else pairs[i][1] if t >= 1 - 1e-7 else
+                pairs[j][0] if w <= 1e-7 else pairs[j][1] if w >= 1 - 1e-7 else None)
+        for k in range(len(vertices), len(nodes)):
+            if node is not None:
+                break
+            comparisons += 1
+            if comparisons > cfg.max_candidate_pairs:
+                raise _ShapeFailure('resource_limit', '视觉交叉去重比较超过上限。')
+            if np.linalg.norm(nodes[k] - point) <= cfg.vertex_on_edge_tolerance_m:
+                node = k
+                break
+        if node is None:
+            node = len(nodes)
+            nodes.append(point)
+        cuts.setdefault(i, []).append((t, node))
+        cuts.setdefault(j, []).append((w, node))
+    edges = {}
+    for edge, (a, b) in enumerate(pairs):
+        chain = [(0., a), *sorted(cuts.get(edge, [])), (1., b)]
+        for (start, u), (end, v) in zip(chain[:-1], chain[1:]):
+            if u == v or end - start <= 1e-9:
+                continue
+            key = (min(u, v), max(u, v))
+            if key not in edges:
+                edges[key] = [float(weights[edge] * (end - start)), 0]
+            edges[key][1] += int(counts[edge])
+            if len(edges) > cfg.max_graph_edges:
+                raise _ShapeFailure('resource_limit', '视觉交叉假设边数超过上限。')
+    adjacency = [[] for _ in nodes]
+    pairs = list(edges)
+    for edge, (a, b) in enumerate(pairs):
+        adjacency[a].append((b, edge))
+        adjacency[b].append((a, edge))
+    return (np.asarray(nodes), pairs, np.asarray([edges[key][0] for key in pairs]),
+            np.asarray([edges[key][1] for key in pairs]), adjacency)
+
+
+def _shape_metrics(coords, xy, cfg):
+    vertices, pairs, weights, counts, adjacency, pair_work = _observed_shape_graph(coords, xy, cfg)
+    pairs, weights, counts, adjacency = _canonical_shape_graph(vertices, pairs, weights, counts, adjacency, cfg)
+    guard_work = _shape_geometry_guard(vertices, pairs, cfg)
+    crossing_assumed = bool(guard_work['crossing_events'] or guard_work['pass_through_nodes'])
+    # Independent O/Q support must survive removal of every geometrically
+    # inferred crossing edge; a visual split alone cannot create its evidence.
+    affected = {edge for i, j, *_ in guard_work['crossing_events'] for edge in (i, j)}
+    affected.update(edge for edge, (a, b) in enumerate(pairs)
+                    if a in guard_work['pass_through_nodes'] or b in guard_work['pass_through_nodes'])
+    clean_adjacency = [[] for _ in vertices]
+    for edge, (a, b) in enumerate(pairs):
+        if edge not in affected:
+            clean_adjacency[a].append((b, edge))
+            clean_adjacency[b].append((a, edge))
+    independent_length = max((sum(weights[e] for e in block)
+                              for block in _shape_blocks(clean_adjacency) if len(block) > 1), default=0.)
+    independent_share = float(independent_length / max(weights.sum(), 1e-9))
+    if crossing_assumed:
+        vertices, pairs, weights, counts, adjacency = _split_visual_crossings(
+            vertices, pairs, weights, counts, guard_work['crossing_events'], cfg)
+    total = float(weights.sum())
+    if total <= 0:
+        raise _ShapeFailure('invalid_input', '整体轨迹几何退化。')
+    blocks, work = [], [0]
+    for block in _shape_blocks(adjacency):
+        if len(block) > 1:
+            blocks.append(_block_boundary(block, vertices, pairs, weights, cfg, work))
+    blocks.sort(key=lambda block: (-block['boundary_m'], -block['area_m2']))
+    cyclic_edges = {edge for block in blocks for edge in block['edges']}
+    cyclic = float(sum(weights[edge] for edge in cyclic_edges))
+    main = blocks[0] if blocks else None
+    main_length = main['boundary_m'] if main else 0.
+    scale = max(float(np.linalg.norm(np.ptp(vertices, axis=0))), 1.)
+    # Bounding-box extent is an auxiliary span measure, never sufficient evidence
+    # of a ring. It penalizes little loops strung along a long corridor.
+    ring_span = float(np.linalg.norm(np.ptp(vertices[main['nodes']], axis=0))) if main else 0.
+    significant = [block for block in blocks if block['boundary_m'] >= max(cfg.min_resolved_length_m, cfg.significant_block_share * total)]
+    secondary = max((block['boundary_m'] for block in blocks[1:]), default=0.)
+    interior_bridges = _interior_bridge_length(main, cyclic_edges, vertices, pairs, weights, cfg, work)
+    return {'unique_length_m': total, 'travel_length_m': float(np.sum(weights * counts)),
+            'cyclic_unique_share': cyclic / total,
+            'cyclic_travel_share': float(sum(weights[e] * counts[e] for e in cyclic_edges) / max(np.sum(weights * counts), 1e-9)),
+            'dominant_boundary_share': main_length / total,
+            'secondary_boundary_share': secondary / total,
+            'main_internal_share': main['internal_share'] if main else 0.,
+            'interior_bridge_share': interior_bridges / total,
+            'main_cycle_rank': main['cycle_rank'] if main else 0,
+            'main_span_share': ring_span / scale,
+            'significant_ring_blocks': len(significant),
+            'ring_block_count': len(blocks), 'bridge_share': 1 - cyclic / total,
+            'cycle_boundaries_m': [block['boundary_m'] for block in blocks[:32]],
+            'cycle_areas_m2': [block['area_m2'] for block in blocks[:32]],
+            'candidate_pairs': pair_work, 'geometry_guard_pairs': guard_work['pairs'],
+            'near_corridor_share': min(1., guard_work['near_corridor_length_m'] / total),
+            'unresolved_crossing_share': min(1., guard_work['crossing_length_m'] / total),
+            'unresolved_crossing_edges': guard_work['crossing_edges'],
+            'visual_crossing_hypothesis': crossing_assumed,
+            'independent_ring_evidence': independent_share >= cfg.dominant_ring_share,
+            'independent_ring_share': independent_share, 'boundary_steps': work[0],
+            'graph_vertices': len(vertices), 'graph_edges': len(pairs)}
+
+
+def _decide_route_shape(metrics, cfg):
+    if metrics['near_corridor_share'] > cfg.maximum_unresolved_share:
+        raise _ShapeFailure('ambiguous_shape', '未分辨的近邻走廊涉及显著行程，不能可靠解释整体形态。')
+    complex_evidence = (metrics['secondary_boundary_share'] >= cfg.secondary_ring_share
+                        or metrics['main_internal_share'] >= cfg.internal_structure_share
+                        or metrics['interior_bridge_share'] >= cfg.internal_structure_share)
+    if metrics['visual_crossing_hypothesis']:
+        # A geometric split is a visual hypothesis, not a verified junction.
+        # It may support an explicitly nonstandard drawing, never certify O/Q.
+        if (complex_evidence and metrics['significant_ring_blocks'] >= 2
+                and metrics['cyclic_unique_share'] >= cfg.minimum_cyclic_share):
+            return 4, ['宏观双叶或多环自交构成非标准环形；交叉仅为视觉假设，未验证道路连通。']
+        if not metrics['independent_ring_evidence']:
+            raise _ShapeFailure('ambiguous_shape', '闭合主体依赖未观测交叉推导，不能据此认证为O/Q环。')
+        if metrics['unresolved_crossing_share'] > cfg.maximum_crossing_share:
+            raise _ShapeFailure('ambiguous_shape', '未分辨交叉影响整体解释，请人工核对。')
+    if metrics['ring_block_count'] == 0:
+        return 3, ['观测结构以开放路径或往返走廊为主，未形成可分辨闭合主体。']
+    if max(metrics['cycle_boundaries_m']) < cfg.min_resolved_length_m:
+        return 3, ['仅有低于宏观形态尺度的局部闭合，整体仍由路径或走廊构成。']
+    if (metrics['dominant_boundary_share'] >= cfg.dominant_ring_share
+            and metrics['secondary_boundary_share'] < cfg.secondary_ring_share
+            and metrics['main_internal_share'] < cfg.internal_structure_share
+            and metrics['interior_bridge_share'] < cfg.internal_structure_share):
+        return 2, ['单一O/Q形闭合主体占主导，其他行程为次要附属结构。']
+    if metrics['cyclic_unique_share'] < cfg.minimum_cyclic_share:
+        return 3, ['线状或往返走廊占主导，局部闭合结构不足以代表整体。']
+    main_share = metrics['dominant_boundary_share']
+    secondary_ratio = metrics['secondary_boundary_share'] / max(main_share, 1e-9)
+    if main_share < cfg.corridor_main_share and (metrics['significant_ring_blocks'] >= 3
+                           or (metrics['bridge_share'] > cfg.corridor_bridge_share
+                               and secondary_ratio < cfg.corridor_secondary_ratio)):
+        return 3, ['局部环分散于桥接走廊，缺少主导整体的闭合主体或集中双环结构。']
+    if complex_evidence:
+        return 4, ['闭合或多环是明显构建特征，且存在显著次环或内部连接，非单一O/Q形。']
+    raise _ShapeFailure('ambiguous_shape', '单环与外接走廊主导程度处于边界，未发现非标准结构，需人工核对。')
+
+
+def _classification_result(category, reasons, cfg, metrics=None, reason_code=None, input_hash=None):
+    result = {'schema_version': '1.0', 'kind': 'route_shape_classification',
+              'category': category, 'label': {1: '识别失败', 2: '环', 3: '非环', 4: '非标准环'}[category],
+              'status': 'failed' if category == 1 else 'classified',
+              'method': 'overall_route_shape_v1', 'reasons': reasons,
+              'metrics': metrics or {}, 'config': asdict(cfg),
+              'limitations': ['geometry_only_not_verified_road_topology',
+                              'exact_observation_graph_with_bounded_collinear_subdivision']}
+    if reason_code:
+        result['reason_code'] = reason_code
+    if input_hash:
+        result['input_sha256'] = input_hash
+    return result
+
+
+def _visual_near_closure(coords, xy, distances, cfg):
+    """Conservative endpoint-only visual hypothesis; never alter input/occurrences."""
+    gap = float(np.linalg.norm(xy[-1] - xy[0]))
+    if gap <= 1e-8:
+        return coords, xy, False, gap
+    if gap > min(cfg.near_closure_radius_m, cfg.near_closure_max_fraction * distances[-1]):
+        return coords, xy, False, gap
+    # Collapse zero-length repeats only when counting actual endpoint visits.
+    # Repeated interior visits to either endpoint make a one-observation snap
+    # ambiguous; reject symmetrically rather than move whichever end is last.
+    distinct = coords[np.r_[True, np.any(coords[1:] != coords[:-1], axis=1)]]
+    if (np.sum(np.all(distinct == coords[0], axis=1)) != 1
+            or np.sum(np.all(distinct == coords[-1], axis=1)) != 1):
+        raise _ShapeFailure('ambiguous_shape', '近闭合端点身份在内部重复出现，不能建立方向无关的独立端点假设。')
+    # Only join the two actual degree-one ends, not a nearby interior junction.
+    neighbors = {}
+    for a, b in zip(map(tuple, coords[:-1]), map(tuple, coords[1:])):
+        if a != b:
+            neighbors.setdefault(a, set()).add(b)
+            neighbors.setdefault(b, set()).add(a)
+    if len(neighbors.get(tuple(coords[0]), ())) != 1 or len(neighbors.get(tuple(coords[-1]), ())) != 1:
+        return coords, xy, False, gap
+    # Original edges can hide an endpoint lying inside another visited segment.
+    # Check the normalized corridor graph as well before joining identities.
+    vertices, _, _, _, adjacency, _ = _observed_shape_graph(coords, xy, cfg)
+    for point in (xy[0], xy[-1]):
+        node = int(np.flatnonzero(np.all(vertices == point, axis=1))[0])
+        if len(adjacency[node]) != 1:
+            raise _ShapeFailure('ambiguous_shape', '近闭合端点在细分后并非独立开放端点。')
+    nonzero = np.flatnonzero(np.linalg.norm(np.diff(xy, axis=0), axis=1) > 1e-7)
+    first = xy[nonzero[0] + 1] - xy[nonzero[0]]
+    last = xy[nonzero[-1] + 1] - xy[nonzero[-1]]
+    heading = float(np.dot(first, last) / (np.linalg.norm(first) * np.linalg.norm(last)))
+    if heading < -.8:
+        # Near-return on reverse-aligned arms may be offset out-and-back data.
+        return coords, xy, False, gap
+    view_coords, view_xy = coords.copy(), xy.copy()
+    # Symmetric internal endpoint identity. The original observations are never
+    # edited, and reversing the route produces the identical geometry hypothesis.
+    midpoint_coord = (coords[0] + coords[-1]) / 2
+    midpoint_xy = (xy[0] + xy[-1]) / 2
+    view_coords[[0, -1]] = midpoint_coord
+    view_xy[[0, -1]] = midpoint_xy
+    return view_coords, view_xy, True, gap
+
+
+def classify_route_bytes(raw, config=None):
+    """Return the visual whole-route class, separately from strict loop reports."""
+    cfg = _shape_config(config)
+    if not isinstance(raw, bytes):
+        return _classification_result(1, ['GPX输入必须为字节快照。'], cfg, reason_code='invalid_input')
+    if len(raw) > cfg.max_input_bytes:
+        return _classification_result(1, ['GPX输入超过字节上限。'], cfg, reason_code='resource_limit')
+    digest = hashlib.sha256(raw).hexdigest()
+    metrics = {}
+    try:
+        # Reuse input safety, not the old sampling-dependent decomposition.
+        admission = LoopRecognitionConfig(max_input_bytes=cfg.max_input_bytes, max_points=cfg.max_points)
+        coords, xy, distances, _ = _load(raw, admission)
+        if distances[-1] < cfg.min_resolved_length_m:
+            raise _ShapeFailure('ambiguous_shape', '路线低于整体形态最小可分辨尺度。')
+        if _noise_diagnostic(xy, admission):
+            raise _ShapeFailure('ambiguous_shape', '频繁小尺度反转使整体形态无法可靠判断。')
+        view_coords, view_xy, near_closure, endpoint_gap = _visual_near_closure(coords, xy, distances, cfg)
+        metrics = _shape_metrics(view_coords, view_xy, cfg)
+        metrics['original_length_m'] = float(distances[-1])
+        metrics['near_closure_assumed'] = near_closure
+        metrics['endpoint_gap_m'] = endpoint_gap
+        category, reasons = _decide_route_shape(metrics, cfg)
+        # Test the same geometry at narrower/wider numerical identity tolerances.
+        # This is bounded (three graph passes), not a road-map hypothesis search.
+        # Keep all rule thresholds fixed: instability means category 1, never a
+        # per-file threshold adjustment to reproduce a desired label.
+        tested_tolerances = [cfg.vertex_on_edge_tolerance_m]
+        for factor in (.5, 2.):
+            tolerance = min(.2, max(.001, cfg.vertex_on_edge_tolerance_m * factor))
+            if tolerance in tested_tolerances:
+                continue
+            tested_tolerances.append(tolerance)
+            alternate = replace(cfg, vertex_on_edge_tolerance_m=tolerance)
+            alternate_metrics = _shape_metrics(view_coords, view_xy, alternate)
+            alternate_category, _ = _decide_route_shape(alternate_metrics, alternate)
+            if alternate_category != category:
+                return _classification_result(
+                    1, ['不同合理几何分辨率下整体类别不稳定，请人工核对。'], cfg,
+                    metrics, reason_code='ambiguous_shape', input_hash=digest)
+        metrics['stability_tolerances_m'] = tested_tolerances
+        if (category == 3 and 0 < endpoint_gap <= min(
+                cfg.near_closure_radius_m, cfg.near_closure_max_fraction * distances[-1])
+                and not np.array_equal(coords[0], coords[-1])):
+            return _classification_result(
+                1, ['首尾近闭合但未能建立可靠闭合主体，不能确定判为非环。'], cfg,
+                metrics, reason_code='ambiguous_shape', input_hash=digest)
+        if near_closure:
+            reasons = [*reasons, '整体形态采用有界首尾近闭合假设；未修改原始轨迹或严格环记录。']
+        return _classification_result(category, reasons, cfg, metrics, input_hash=digest)
+    except _ShapeFailure as exc:
+        return _classification_result(1, [str(exc)], cfg, metrics, reason_code=exc.code, input_hash=digest)
+    except RecognitionError as exc:
+        message = str(exc)
+        code = ('resource_limit' if ('超过' in message or ('超出' in message and '点数' in message)) else
+                'unsupported_input' if ('支持' in message or 'UTM' in message) else 'invalid_input')
+        return _classification_result(1, [message], cfg, reason_code=code, input_hash=digest)
+
+
+def classify_route(path, config=None):
+    cfg = _shape_config(config)
+    try:
+        with Path(path).open('rb') as stream:
+            raw = stream.read(cfg.max_input_bytes + 1)
+    except OSError:
+        return _classification_result(1, ['无法读取GPX输入。'], cfg, reason_code='invalid_input')
+    return classify_route_bytes(raw, cfg)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Read-only GPX loop structure recognition (no cleaned track).')
     parser.add_argument('input')
-    parser.add_argument('--radius', type=float, default=12.)
-    parser.add_argument('--spacing', type=float, default=8.)
+    parser.add_argument('--radius', type=float)
+    parser.add_argument('--spacing', type=float)
     parser.add_argument('--out', help='Optional NEW JSON report file; existing files are never overwritten.')
+    parser.add_argument('--classify', action='store_true', help='Return whole-route class 1/2/3/4 instead of strict-loop diagnostics.')
     args = parser.parse_args()
+    if args.classify and (args.radius is not None or args.spacing is not None):
+        parser.error('--radius / --spacing only apply to strict-loop diagnostics, not --classify')
     try:
-        result = recognize_loops(args.input, LoopRecognitionConfig(match_radius_m=args.radius, spacing_m=args.spacing))
+        result = (classify_route(args.input) if args.classify else
+                  recognize_loops(args.input, LoopRecognitionConfig(
+                      match_radius_m=12. if args.radius is None else args.radius,
+                      spacing_m=8. if args.spacing is None else args.spacing)))
         text = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)
         if args.out:
             with Path(args.out).open('x', encoding='utf-8') as output:
                 output.write(text + '\n')
         else:
             print(text)
+        if args.classify and result['category'] == 1:
+            parser.exit(2)
     except (RecognitionError, OSError) as exc:
         parser.exit(2, f'{exc}\n')
 
