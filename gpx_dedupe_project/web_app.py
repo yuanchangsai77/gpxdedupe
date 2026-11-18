@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,6 +63,12 @@ def safe_file(path, root):
 class FileRecord:
     path: Path
     root: Path
+    export: loop_recognition.RouteExportIndex | None = None
+    entry: dict | None = None
+
+    @property
+    def snapshot_name(self):
+        return self.path.name if self.export is None else f"route-{self.entry['source_index']}.gpx"
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -78,48 +85,95 @@ class LocalServer(ThreadingHTTPServer):
         super().__init__((loopback_host(host), port), Handler)
 
     def list_files(self, body):
-        folder = body.get("folder")
+        legacy = "paths" not in body
+        paths = [body.get("folder")] if legacy else body["paths"]
         recursive = body.get("recursive", False)
-        if not isinstance(folder, str) or not folder.strip() or "\x00" in folder:
-            raise APIError(400, "folder 必须是非空目录路径")
+        if (not isinstance(paths, list) or not paths
+                or any(not isinstance(path, str) or not path.strip() or "\x00" in path for path in paths)):
+            raise APIError(400, "请输入有效的文件夹或路线文件路径")
         if not isinstance(recursive, bool):
             raise APIError(400, "recursive 必须为布尔值")
-        root = Path(folder).expanduser().absolute()
-        if has_link(root):
-            raise APIError(403, "禁止选择符号链接或目录联接")
-        root = root.resolve(strict=True)
-        if not root.is_dir():
-            raise APIError(400, "folder 必须指向目录")
-        files = []
-        records = {}
+        files, records, sources, errors = [], {}, [], []
+        seen = set()
         truncated = False
 
-        def walk_error(error):
-            raise error
+        def candidates(source):
+            if source.is_file():
+                yield source
+                return
+            for directory, directories, names in os.walk(source, followlinks=False):
+                directories[:] = sorted(
+                    name for name in directories if not has_link(Path(directory) / name)
+                ) if recursive else []
+                for name in sorted(names):
+                    path = Path(directory) / name
+                    if (path.suffix.lower() == ".gpx" or name.lower().endswith(".export.json")) and not has_link(path):
+                        yield path
 
-        for directory, directories, names in os.walk(root, followlinks=False, onerror=walk_error):
-            directories[:] = sorted(
-                name for name in directories
-                if not has_link(Path(directory) / name)
-            ) if recursive else []
-            for name in sorted(names):
-                path = Path(directory) / name
-                if path.suffix.lower() != ".gpx" or has_link(path):
+        def add(record, name, relative, size, source):
+            nonlocal truncated
+            if len(files) >= MAX_FILES:
+                truncated = True
+                return
+            file_id = uuid.uuid4().hex
+            records[file_id] = record
+            item = {"id": file_id, "name": name, "relative_path": relative, "size_bytes": size}
+            if not legacy:
+                item.update(source=str(source), format="JSON" if record.export else "GPX")
+            files.append(item)
+
+        for raw in paths:
+            try:
+                source = Path(raw).expanduser().absolute()
+                if has_link(source):
+                    raise APIError(403, "禁止选择符号链接或目录联接")
+                source = source.resolve(strict=True)
+                if legacy and not source.is_dir():
+                    raise APIError(400, "folder 必须指向目录")
+                if source in sources:
                     continue
-                stat = safe_file(path, root)
-                if len(files) == MAX_FILES:
-                    truncated = True
-                    break
-                file_id = uuid.uuid4().hex
-                records[file_id] = FileRecord(path.resolve(strict=True), root)
-                files.append({"id": file_id, "name": path.name,
-                              "relative_path": path.relative_to(root).as_posix(),
-                              "size_bytes": stat.st_size})
+                sources.append(source)
+                root = source if source.is_dir() else source.parent
+                for path in candidates(source):
+                    if path in seen:
+                        continue
+                    try:
+                        stat = safe_file(path, root)
+                        relative = path.relative_to(root).as_posix()
+                        if path.suffix.lower() == ".gpx":
+                            add(FileRecord(path, root), path.name, relative, stat.st_size, source)
+                        elif path.suffix.lower() == ".json":
+                            index = loop_recognition.RouteExportIndex(path)
+                            supported = [entry for entry in index.entries if entry["schema_supported"]]
+                            if not supported:
+                                raise APIError(400, "没有可读取的 TopRoute 路线")
+                            for entry in supported:
+                                number = entry["source_index"]
+                                identifier = entry["topRouteId"]
+                                name = f"路线 {number}" + (f" · {identifier}" if identifier else "")
+                                record = FileRecord(path, root, index, entry)
+                                export_path = relative if source.is_dir() else ""
+                                add(record, name, "/".join(filter(None, (export_path, f"路线 {number}"))),
+                                    entry.get("byte_length"), source)
+                                if truncated:
+                                    break
+                        else:
+                            raise APIError(400, "支持 GPX 和 TopRoute JSON 文件")
+                        seen.add(path)
+                    except (APIError, loop_recognition.ExportError, OSError) as exc:
+                        errors.append(f"{path}：{exc}")
+                    if truncated:
+                        break
+            except (APIError, OSError) as exc:
+                if legacy:
+                    raise
+                errors.append(f"{raw}：{exc if isinstance(exc, APIError) else exc.strerror}")
             if truncated:
                 break
         with self.state_lock:
             self.files.update(records)
-        return {"folder": str(root), "files": files, "truncated": truncated}
+        return {"folder": str(sources[0]) if len(sources) == 1 else "\n".join(map(str, sources)),
+                "files": files, "truncated": truncated, "errors": errors}
 
     def source_record(self, file_id):
         if not isinstance(file_id, str):
@@ -132,6 +186,8 @@ class LocalServer(ThreadingHTTPServer):
 
     def read_source(self, record, max_bytes=MAX_GPX_BYTES):
         stat = safe_file(record.path, record.root)
+        if record.export is not None:
+            return self.export_gpx(record, max_bytes)
         limit_message = f"GPX 文件不能超过 {max_bytes // (1024 * 1024)} MiB"
         if stat.st_size > max_bytes:
             raise APIError(413, limit_message)
@@ -147,6 +203,42 @@ class LocalServer(ThreadingHTTPServer):
         if b"<!DOCTYPE" in xml_text or b"<!ENTITY" in xml_text:
             raise APIError(400, "GPX 不允许包含 DTD 或实体声明")
         return data
+
+    def export_gpx(self, record, max_bytes):
+        try:
+            route = record.export.load(record.entry)
+        except loop_recognition.ExportError as exc:
+            raise APIError(409, str(exc)) from exc
+        segments = route.get("segments") if isinstance(route, dict) else None
+        if not isinstance(segments, list) or len(segments) != 1 or not isinstance(segments[0], dict):
+            raise APIError(400, "TopRoute 路线必须包含一个连续轨迹段")
+        points = segments[0].get("routePoints")
+        if not isinstance(points, list) or not 3 <= len(points) <= loop_recognition.LoopRecognitionConfig().max_points:
+            raise APIError(400, "TopRoute 轨迹点数超出支持范围")
+        coords, elevations = [], []
+        for point in points:
+            if not isinstance(point, dict):
+                raise APIError(400, "TopRoute 轨迹点格式无效")
+            lon, lat, altitude = (point.get(key) for key in ("longitude", "latitude", "altitude"))
+            if not loop_recognition._valid_export_numbers(lon, lat, altitude) or abs(lon) > 180 or abs(lat) > 90:
+                raise APIError(400, "TopRoute 轨迹点坐标或海拔无效")
+            coords.append((lon, lat))
+            elevations.append(altitude if altitude is not None else math.nan)
+        stream = io.BytesIO()
+        route_dedupe.write_gpx(stream, coords, elevations, record.snapshot_name, full_precision=True)
+        data = stream.getvalue()
+        if len(data) > max_bytes:
+            raise APIError(413, "路线超过输入字节限制")
+        return data
+
+    def preview_file(self, body):
+        record = self.source_record(body.get("file_id"))
+        coords, _, _, _ = route_dedupe.load_gpx(io.BytesIO(self.read_source(record)))
+        if (len(coords) > loop_recognition.LoopRecognitionConfig().max_points
+                or not all(math.isfinite(lon) and math.isfinite(lat) and abs(lon) <= 180 and abs(lat) <= 90
+                           for lon, lat in coords)):
+            raise APIError(400, "路线坐标或点数无效")
+        return {"original": coords.tolist()}
 
     def prepare_output(self):
         if has_link(self.output_dir):
@@ -176,7 +268,7 @@ class LocalServer(ThreadingHTTPServer):
             analysis_id = uuid.uuid4().hex
             out = self.output_dir / analysis_id
             with tempfile.TemporaryDirectory(prefix="analysis-", dir=self.output_dir) as tmp:
-                snapshot = Path(tmp) / record.path.name
+                snapshot = Path(tmp) / record.snapshot_name
                 snapshot.write_bytes(data)
                 analysis = route_plans.analyze(snapshot, route_dedupe.Config(match_radius_m=float(radius)))
                 report = {**analysis["report"], "schema_version": analysis["schema_version"],
@@ -227,7 +319,7 @@ class LocalServer(ThreadingHTTPServer):
             config = loop_recognition.LoopRecognitionConfig(match_radius_m=float(radius))
             data = self.read_source(record, max_bytes=config.max_input_bytes)
             result = loop_recognition.recognize_bytes(
-                data, config, source_name=record.path.name)
+                data, config, source_name=record.snapshot_name)
             # Recognition is read-only evidence, never an applicable transformation plan.
             recognition_id = uuid.uuid4().hex
             response = {**result, "recognition_id": recognition_id,
@@ -280,7 +372,7 @@ class LocalServer(ThreadingHTTPServer):
             run_id = uuid.uuid4().hex
             out = self.output_dir / run_id
             with tempfile.TemporaryDirectory(prefix="apply-", dir=self.output_dir) as tmp:
-                snapshot = Path(tmp) / entry["record"].path.name
+                snapshot = Path(tmp) / entry["record"].snapshot_name
                 snapshot.write_bytes(data)
                 published = Path(tmp) / "published"
                 report, original, cleaned = route_plans.apply(
@@ -442,6 +534,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = self.read_json()
                 if path == "/api/files":
                     result = self.server.list_files(body)
+                elif path == "/api/preview":
+                    result = self.server.preview_file(body)
                 elif path in ("/api/run", "/api/analyze"):
                     result = self.server.analyze_file(body)
                 elif path == "/api/recognize-loops":

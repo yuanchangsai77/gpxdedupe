@@ -6,7 +6,7 @@
 <main class="workspace">
 <aside class="source-panel">
 <div class="section-heading"><h1>选择一条路线</h1><span class="version">V0.1</span></div><p class="muted intro">先分析几何候选，核对后再确认转换与导出。</p>
-<form id="folder-form"><label for="folder">GPX 文件夹</label><textarea id="folder" rows="3" spellcheck="false" placeholder="输入本机文件夹完整路径" required></textarea><div class="folder-actions"><label class="check"><input id="recursive" type="checkbox"> 包含子文件夹</label><button id="scan" type="submit" class="button small">读取文件夹</button></div></form>
+<form id="folder-form"><label for="folder">路线来源</label><textarea id="folder" rows="3" spellcheck="false" placeholder="每行一个文件夹、GPX 或 TopRoute JSON 路径" required></textarea><div class="folder-actions"><label class="check"><input id="recursive" type="checkbox"> 包含子文件夹</label><button id="scan" type="submit" class="button small">读取路线</button></div></form>
 <div class="shortcuts"><button id="use-example" type="button">使用示例</button><button id="use-default" type="button">使用你的目录</button></div>
 <div class="list-heading"><h2>轨迹文件 <span id="file-count">0</span></h2><label class="sr-only" for="filter">搜索文件名</label><input type="search" id="filter" placeholder="搜索文件名…"></div>
 <div id="files" class="file-list" role="group" aria-label="GPX 文件列表"><p class="list-empty">正在读取文件夹…</p></div>
@@ -20,7 +20,7 @@
 <div id="map-stage" class="map-stage split">
 <div class="map-pane" id="original-pane"><div class="map-label"><i class="line-key original"></i><h3>原始轨迹</h3><span id="original-map-info">未载入</span></div><div class="map-host" id="original-map"></div></div>
 <div class="map-pane" id="clean-pane"><div class="map-label"><i class="line-key cleaned"></i><h3 id="clean-map-title">候选预览 · 未导出</h3><span id="clean-map-info">未载入</span></div><div class="map-host" id="clean-map"></div></div>
-<div id="map-empty" class="map-empty"><svg viewBox="0 0 120 80" aria-hidden="true"><path d="M12 65 33 19l26 33 27-40 22 47-49-7-26-33"/><circle cx="12" cy="65" r="4"/><circle cx="108" cy="59" r="4"/></svg><strong>先查看几何候选</strong><span>使用示例快速开始，或读取自己的 GPX 文件夹。</span></div>
+<div id="map-empty" class="map-empty"><svg viewBox="0 0 120 80" aria-hidden="true"><path d="M12 65 33 19l26 33 27-40 22 47-49-7-26-33"/><circle cx="12" cy="65" r="4"/><circle cx="108" cy="59" r="4"/></svg><strong>选择路线以预览</strong><span>读取路线来源后，在列表中选择一条路线。</span></div>
 <div class="zoom-tools"><button id="zoom-in" type="button" aria-label="放大">＋</button><button id="zoom-out" type="button" aria-label="缩小">−</button></div>
 </div>
 <div class="map-footer"><span>本地几何视图 · 无在线底图</span><span>滚轮缩放 / 拖动平移 / 方向键平移 / 双击复位</span></div>

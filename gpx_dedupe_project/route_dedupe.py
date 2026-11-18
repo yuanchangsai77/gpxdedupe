@@ -45,7 +45,7 @@ def load_gpx(path):
     if len(elems)<3: raise ValueError('Need >=3 trackpoints')
     lonlat=np.array([[float(e.attrib['lon']),float(e.attrib['lat'])] for e in elems])
     eles=np.array([float(e.findtext(tag('ele'))) if e.findtext(tag('ele')) is not None else np.nan for e in elems])
-    title=root.findtext('.//' + tag('metadata') + '/' + tag('name')) or Path(path).stem
+    title=root.findtext('.//' + tag('metadata') + '/' + tag('name')) or (Path(path).stem if isinstance(path, (str, Path)) else "track")
     return lonlat, eles, title, root
 
 
@@ -194,15 +194,17 @@ def crop_at_distances(xy,ele,a,b):
     return ret,el
 
 
-def write_gpx(path,coords,ele,title,closed=False):
+def write_gpx(path,coords,ele,title,closed=False,*,full_precision=False):
     root=ET.Element(tag('gpx'),{'version':'1.1','creator':'GPX Route Deduper V0.1'})
     meta=ET.SubElement(root,tag('metadata'))
     ET.SubElement(meta,tag('name')).text=title
     trk=ET.SubElement(root,tag('trk'));ET.SubElement(trk,tag('name')).text=title
     seg=ET.SubElement(trk,tag('trkseg'))
+    coordinate_format = '.17g' if full_precision else '.8f'
+    elevation_format = '.17g' if full_precision else '.2f'
     for (lon,lat),z in zip(coords,ele):
-        x=ET.SubElement(seg,tag('trkpt'),{'lat':f'{lat:.8f}','lon':f'{lon:.8f}'})
-        if np.isfinite(z):ET.SubElement(x,tag('ele')).text=f'{z:.2f}'
+        x=ET.SubElement(seg,tag('trkpt'),{'lat':format(lat, coordinate_format),'lon':format(lon, coordinate_format)})
+        if np.isfinite(z):ET.SubElement(x,tag('ele')).text=format(z, elevation_format)
     ET.ElementTree(root).write(path,encoding='utf-8',xml_declaration=True)
 
 

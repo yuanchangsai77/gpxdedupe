@@ -7,7 +7,7 @@ updateThemeButton();
 $('theme-toggle')?.addEventListener('click', () => { root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('gpx-theme', root.dataset.theme); } catch {} updateThemeButton(); });
 if ($('folder-form')) startWorkbench();
 function startWorkbench() {
-  const state = {config:null, files:[], selected:null, result:null, analysis:null, applied:false, busy:false, scanning:false, workMode:'recognition', loopSelection:null, mode:'split', zoom:1, panX:0, panY:0, bounds:null, table:'original', version:0, operation:null};
+  const state = {config:null, files:[], expanded:new Map(), preview:null, selected:null, result:null, analysis:null, applied:false, busy:false, scanning:false, workMode:'recognition', loopSelection:null, mode:'split', zoom:1, panX:0, panY:0, bounds:null, table:'original', version:0, operation:null};
   const recognizing=()=>state.workMode==='recognition';
   function modeSettings() {
     const recognition=recognizing();$('work-mode').value=state.workMode;
@@ -16,7 +16,7 @@ function startWorkbench() {
     $('mode-note').textContent=recognition?'识别原轨迹中的几何环，不裁切、不补线。':'先分析几何候选，核对后再确认转换与导出。';
     document.body.classList.toggle('recognition-mode',recognition);
     document.querySelector('.intro').textContent=recognition?'识别原始轨迹中的几何环，不修改或导出轨迹。':'先分析几何候选，核对后再确认转换与导出。';
-    document.querySelector('.map-empty strong').textContent=recognition?'先识别轨迹中的环':'先查看几何候选';
+    document.querySelector('.map-empty strong').textContent='选择路线以预览';
   }
   async function api(path, body) {
     const response = await fetch(path, body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -57,28 +57,100 @@ function startWorkbench() {
     $('route-title').textContent=state.selected?.name || (recognizing()?'识别原轨迹中的环':'先核对候选，再决定转换');$('route-subtitle').textContent=recognizing()?'请点击「识别轨迹中的环」；仅生成只读识别报告。':'请点击「仅分析候选」生成新的候选预览。';$('result-badge').textContent=recognizing()?'等待识别 · 原轨迹未变':'等待分析 · 未导出';
     $('original-map-info').textContent='未载入';$('clean-map-info').textContent='未载入';updateResultLabels();renderMaps();
   }
+  function setOriginalBounds(points) {
+    state.project=p=>[p[0]*Math.PI/180,Math.log(Math.tan(Math.PI/4+Math.max(-85,Math.min(85,p[1]))*Math.PI/360))];
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const point of points){const [x,y]=state.project(point);minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
+    state.bounds={cx:(minX+maxX)/2,cy:(minY+maxY)/2,width:Math.max(maxX-minX,1e-7),height:Math.max(maxY-minY,1e-7)};
+  }
+  function showPreview(original) {
+    state.result={original,cleaned:[]};
+    setOriginalBounds(original);
+    $('map-empty').hidden=true;
+    $('route-subtitle').textContent=state.selected.relative_path;
+    $('original-map-info').textContent=`${original.length} 点`;
+    fit();
+    renderTable();
+  }
+  async function selectFile(file) {
+    const scroll=$('files').scrollTop;
+    state.selected=file;state.preview=null;invalidate();renderFiles();controls();
+    $('files').scrollTop=scroll;
+    status(`正在加载 ${file.name}…`);
+    try {
+      const {original}=await api('/api/preview',{file_id:file.id});
+      if(state.selected!==file)return;
+      state.preview={id:file.id,original};
+      if(state.busy || state.scanning || state.result)return;
+      showPreview(original);
+      status(`已预览 ${file.name}。可点击下方按钮进行${recognizing()?'环识别':'候选分析'}。`);
+    } catch(error) {
+      if(state.selected===file && !state.busy && !state.result)status(error.message,true);
+    }
+  }
   function renderFiles() {
-    const list=$('files'); list.replaceChildren();
-    const query=$('filter').value.toLocaleLowerCase();
-    const files=state.files.filter(f=>`${f.name} ${f.relative_path}`.toLocaleLowerCase().includes(query));
+    const list=$('files'), scroll=list.scrollTop;
+    list.replaceChildren();
+    const query=$('filter').value.trim().toLocaleLowerCase();
+    const files=state.files.filter(f=>`${f.source || ''} ${f.relative_path} ${f.name}`.toLocaleLowerCase().includes(query));
     $('file-count').textContent=state.files.length;
+    const branches=new Map();
+    function folder(parent, key, label, defaultOpen) {
+      if(branches.has(key))return branches.get(key);
+      const details=document.createElement('details');
+      details.className='route-folder';
+      details.open=Boolean(query) || (state.expanded.get(key) ?? defaultOpen);
+      const summary=document.createElement('summary');summary.textContent=label;
+      const children=document.createElement('div');
+      summary.addEventListener('click',()=>{if(!query)state.expanded.set(key,!details.open);});
+      details.append(summary,children);parent.append(details);branches.set(key,children);
+      return children;
+    }
     for (const file of files) {
-      const button=document.createElement('button');button.type='button';button.className='file-item';button.setAttribute('aria-pressed',String(state.selected?.id===file.id));button.disabled=state.busy;
-      const icon=document.createElement('span');icon.className='file-icon';icon.textContent='GPX';
+      let parent=list;
+      if(file.source){
+        const branch=[file.source];
+        const label=file.source.split(/[\\/]/).filter(Boolean).at(-1)||file.source;
+        parent=folder(parent,JSON.stringify(branch),label,!label.toLowerCase().endsWith('.json'));
+        for(const part of file.relative_path.split('/').slice(0,-1)){
+          branch.push(part);
+          parent=folder(parent,JSON.stringify(branch),part,false);
+        }
+      }
+      const button=document.createElement('button');button.type='button';button.className='file-item';
+      button.setAttribute('aria-pressed',String(state.selected?.id===file.id));
+      button.disabled=state.busy || state.scanning;
+      const icon=document.createElement('span');icon.className='file-icon';icon.textContent=file.format || 'GPX';
       const copy=document.createElement('span');copy.className='file-copy';
       const name=document.createElement('strong');name.textContent=file.name;
-      const meta=document.createElement('small');meta.textContent=`${(file.size_bytes/1024).toFixed(1)} KB${file.relative_path!==file.name?' / '+file.relative_path:''}`;
-      copy.append(name,meta);button.append(icon,copy);
-      button.disabled=state.busy || state.scanning;
-      button.addEventListener('click',()=>{if(state.busy || state.scanning)return;state.selected=file;invalidate();renderFiles();controls();status(`已选择 ${file.name}。点击「${recognizing()?'识别轨迹中的环':'仅分析候选'}」；旧结果与确认已失效。`);});list.append(button);
+      copy.append(name);
+      if(Number.isFinite(file.size_bytes)){
+        const meta=document.createElement('small');meta.textContent=`${(file.size_bytes/1024).toFixed(1)} KB`;
+        copy.append(meta);
+      }
+      button.append(icon,copy);
+      button.addEventListener('click',()=>selectFile(file));parent.append(button);
     }
-    if (!files.length) {const p=document.createElement('p');p.className='list-empty';p.textContent=state.files.length?'没有匹配的文件名。':'没有找到 GPX 文件。请检查路径或勾选「包含子文件夹」。';list.append(p);}
+    if (!files.length) {
+      const p=document.createElement('p');p.className='list-empty';
+      p.textContent=state.files.length?'没有匹配的路线。':'没有找到可读取的路线。';list.append(p);
+    }
+    list.scrollTop=scroll;
   }
   async function scan(folder) {
     if(state.busy || state.scanning) return;
-    state.scanning=true;state.selected=null;state.files=[];invalidate();renderFiles();controls();status('正在读取文件夹…原候选与确认已失效。');
-    try { const data=await api('/api/files',{folder,recursive:$('recursive').checked});state.files=data.files;$('folder').value=data.folder;state.selected=data.files[0]||null;renderFiles();status(`已读取 ${data.files.length} 个 GPX 文件。${data.truncated?'仅显示前 2000 个文件，请缩小目录范围。':'选择文件后点击「仅分析候选」。'}`); }
-    catch(error){status(error.message,true);}finally{state.scanning=false;renderFiles();controls();}
+    const paths=folder.split(/\r?\n/).map(path=>path.trim().replace(/^"|"$/g,'')).filter(Boolean);
+    state.scanning=true;state.selected=null;state.preview=null;state.files=[];state.expanded.clear();
+    invalidate();renderFiles();controls();status('正在读取路线来源…');
+    try {
+      const data=await api('/api/files',{paths,recursive:$('recursive').checked});
+      state.files=data.files;
+      const messages=[`已读取 ${data.files.length} 条路线。点击路线即可预览。`];
+      if(data.truncated)messages.push('仅显示前 2000 条路线。');
+      if(data.errors?.length)messages.push(...data.errors);
+      status(messages.join(' '),Boolean(data.errors?.length));
+    } catch(error){status(error.message,true);}
+    finally{state.scanning=false;renderFiles();controls();}
   }
   $('folder-form').addEventListener('submit',event=>{event.preventDefault();scan($('folder').value.trim());});
   $('filter').addEventListener('input',renderFiles);
@@ -198,10 +270,7 @@ function startWorkbench() {
   }
   function renderRecognition(result,selected) {
     state.result=result;state.applied=false;state.zoom=1;state.panX=0;state.panY=0;state.loopSelection=null;
-    state.project=p=>[p[0]*Math.PI/180,Math.log(Math.tan(Math.PI/4+Math.max(-85,Math.min(85,p[1]))*Math.PI/360))];
-    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
-    for(const point of result.original){const [x,y]=state.project(point);minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
-    state.bounds={cx:(minX+maxX)/2,cy:(minY+maxY)/2,width:Math.max(maxX-minX,1e-7),height:Math.max(maxY-minY,1e-7)};
+    setOriginalBounds(result.original);
     const r=result.report, partial=r.completeness!=='complete';
     $('route-title').textContent=selected.name;$('route-subtitle').textContent=`${selected.relative_path} · 环识别，只读原轨迹`;
     for(const id of ['summary','result-details','loop-details'])$(id).hidden=false;
@@ -301,7 +370,7 @@ function startWorkbench() {
   function validResult(result) { return result && result.report && Array.isArray(result.original) && result.original.length>0 && Array.isArray(result.cleaned) && result.cleaned.length>0; }
   $('work-mode').addEventListener('change',()=>{state.workMode=$('work-mode').value==='transform'?'transform':'recognition';modeSettings();invalidate();controls();status('工作模式已切换，旧结果与确认已清除。请重新运行。');});
   $('radius').addEventListener('input',()=>{invalidate();controls();status('匹配半径已改变，原候选与确认已失效。请重新分析。');});
-  for(const id of ['folder','recursive']) $(id).addEventListener(id==='folder'?'input':'change',()=>{invalidate();controls();status('扫描设置已改变，原候选与确认已失效。请读取文件夹后重新分析。');});
+  for(const id of ['folder','recursive']) $(id).addEventListener(id==='folder'?'input':'change',()=>{state.selected=null;state.preview=null;state.files=[];invalidate();renderFiles();controls();status('扫描设置已改变，原候选与确认已失效。请重新读取路线。');});
   for(const id of ['goal','confirm','acknowledge-geometry-only','acknowledge-access-loss']) $(id).addEventListener('change',()=>{controls();$('confirmation-hint').textContent=canApply()?'已完成显式确认，可转换并导出。':'请先选择候选目标，并逐项确认风险。';});
   $('run').addEventListener('click',async()=>{
     if(state.busy || state.scanning || !state.selected)return;
@@ -350,6 +419,7 @@ function startWorkbench() {
     for(const item of series){
       if(!$(item.key==='original'?'show-original':'show-clean').checked)continue;
       const projected=state.result[item.key].map(screen);
+      if(!projected.length)continue;
       const d=projected.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ');
       g.append(svgNode('path',{d,fill:'none',stroke:'var(--plot)','stroke-width':5,'stroke-linecap':'round','stroke-linejoin':'round'}));
       g.append(svgNode('path',{d,fill:'none',stroke:`var(--${item.key==='original'?'original':'cleaned'})`,'stroke-width':2.3,'stroke-dasharray':item.key==='original'?'7 4':'none','stroke-linejoin':'round','stroke-linecap':'round',class:'route-line'}));
