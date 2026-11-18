@@ -1,0 +1,1734 @@
+{
+  "source": "toproute_all.export.json",
+  "total": 52,
+  "matched": 52,
+  "mismatched": 0,
+  "confusion_matrix": {
+    "2": {
+      "1": 0,
+      "2": 16,
+      "3": 0,
+      "4": 0
+    },
+    "3": {
+      "1": 0,
+      "2": 0,
+      "3": 34,
+      "4": 0
+    },
+    "4": {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 2
+    }
+  },
+  "routes": [
+    {
+      "topRouteId": "tktra10562",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.029783750347930606,
+          "signed_area_share": 0.708079886916938,
+          "dominant_boundary_share": 0.757120852016057,
+          "secondary_boundary_share": 0.052887221489883125,
+          "largest_block_area_share": 0.7101556263958985,
+          "second_block_area_share": 0.0010132450929620554,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7101556263958985
+        },
+        "257": {
+          "endpoint_gap_share": 0.029312275617858152,
+          "signed_area_share": 0.7037671922364901,
+          "dominant_boundary_share": 0.7410746288848992,
+          "secondary_boundary_share": 0.06664387554556303,
+          "largest_block_area_share": 0.7061291823904801,
+          "second_block_area_share": 0.0012112873411026504,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7061291823904801
+        }
+      },
+      "ordered_return_share": 0.1554054054054054,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra15175",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.012324304602568038,
+          "signed_area_share": 0.6127175802002623,
+          "dominant_boundary_share": 0.7474626234900493,
+          "secondary_boundary_share": 0.07126463626965637,
+          "largest_block_area_share": 0.6142127627068582,
+          "second_block_area_share": 0.0010297369141275328,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.6142127627068582
+        },
+        "257": {
+          "endpoint_gap_share": 0.0122944072973863,
+          "signed_area_share": 0.6105238604344617,
+          "dominant_boundary_share": 0.744454648381128,
+          "secondary_boundary_share": 0.09199222326890505,
+          "largest_block_area_share": 0.611022375995397,
+          "second_block_area_share": 0.0010047529677233347,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.611022375995397
+        }
+      },
+      "ordered_return_share": 0.1743119266055046,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra11861",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0720550422324411,
+          "signed_area_share": 0.6249585800544342,
+          "dominant_boundary_share": 0.7105689274858591,
+          "secondary_boundary_share": 0.1608113399515984,
+          "largest_block_area_share": 0.6209941564277357,
+          "second_block_area_share": 0.0023847783575199092,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.6209941564277356
+        },
+        "257": {
+          "endpoint_gap_share": 0.07191724794115877,
+          "signed_area_share": 0.6216909445831703,
+          "dominant_boundary_share": 0.715285469659638,
+          "secondary_boundary_share": 0.2176448424718158,
+          "largest_block_area_share": 0.6175663688234326,
+          "second_block_area_share": 0.0026047135674219534,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.6175663688234327
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13590",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0018834114709479458,
+          "signed_area_share": 0.7220792681514919,
+          "dominant_boundary_share": 1.0000000000000002,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7220794585724896,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7220794585724897
+        },
+        "257": {
+          "endpoint_gap_share": 0.0018834114709479458,
+          "signed_area_share": 0.7200473248880295,
+          "dominant_boundary_share": 0.8332541589445334,
+          "secondary_boundary_share": 0.07866750768553037,
+          "largest_block_area_share": 0.7191177069326528,
+          "second_block_area_share": 0.0004649025370348144,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7191177069326528
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13798",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.05573826524309279,
+          "signed_area_share": 0.6659899656914083,
+          "dominant_boundary_share": 0.7685464257671003,
+          "secondary_boundary_share": 0.07547365386583602,
+          "largest_block_area_share": 0.6681082821250608,
+          "second_block_area_share": 0.0016234330596296548,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.6681082821250608
+        },
+        "257": {
+          "endpoint_gap_share": 0.055525357645938925,
+          "signed_area_share": 0.6640065319306493,
+          "dominant_boundary_share": 0.7656694521036839,
+          "secondary_boundary_share": 0.12443019456482846,
+          "largest_block_area_share": 0.6661508743745967,
+          "second_block_area_share": 0.0022930315037776056,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.6661508743745967
+        }
+      },
+      "ordered_return_share": 0.18850267379679145,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra14620",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.040733450554148856,
+          "signed_area_share": 0.8013909991846403,
+          "dominant_boundary_share": 0.706787126971109,
+          "secondary_boundary_share": 0.10238322608441568,
+          "largest_block_area_share": 0.8050906848237023,
+          "second_block_area_share": 0.002539362046086946,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.8050906848237025
+        },
+        "257": {
+          "endpoint_gap_share": 0.04026630001078997,
+          "signed_area_share": 0.7899179802937951,
+          "dominant_boundary_share": 0.8242898861809242,
+          "secondary_boundary_share": 0.09127010009596306,
+          "largest_block_area_share": 0.792103958533729,
+          "second_block_area_share": 0.0017246605177345684,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.792103958533729
+        }
+      },
+      "ordered_return_share": 0.19444444444444445,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra10712",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.12978882814644502,
+          "signed_area_share": 0.6478849511190173,
+          "dominant_boundary_share": 0.6261993660394232,
+          "secondary_boundary_share": 0.03263882150331283,
+          "largest_block_area_share": 0.6502861355181121,
+          "second_block_area_share": 0.000987997947891608,
+          "main_largest_face_share": 0.9757148300787682,
+          "largest_bounded_face_area_share": 0.6344938262196337
+        },
+        "257": {
+          "endpoint_gap_share": 0.1282119697345426,
+          "signed_area_share": 0.6303237146875353,
+          "dominant_boundary_share": 0.6280633957387329,
+          "secondary_boundary_share": 0.04377240769382422,
+          "largest_block_area_share": 0.6325265205424543,
+          "second_block_area_share": 0.0012954129089212338,
+          "main_largest_face_share": 0.9771449726179948,
+          "largest_bounded_face_area_share": 0.618070109595612
+        }
+      },
+      "ordered_return_share": 0.1608832807570978,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra14959",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.004635495804960279,
+          "signed_area_share": 0.5480956266904045,
+          "dominant_boundary_share": 0.6409203984273854,
+          "secondary_boundary_share": 0.06249274822943321,
+          "largest_block_area_share": 0.5461349323890646,
+          "second_block_area_share": 0.001144031257161543,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.5461349323890646
+        },
+        "257": {
+          "endpoint_gap_share": 0.004635495804960279,
+          "signed_area_share": 0.5364293032217107,
+          "dominant_boundary_share": 0.6628397719610784,
+          "secondary_boundary_share": 0.035105370863531264,
+          "largest_block_area_share": 0.5351477075540829,
+          "second_block_area_share": 0.0010974770394830483,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.5351477075540829
+        }
+      },
+      "ordered_return_share": 0.3048128342245989,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13322",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.09654420744587594,
+          "signed_area_share": 0.8534997620735251,
+          "dominant_boundary_share": 0.9999999999999991,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.8534997620735251,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.8534997620735253
+        },
+        "257": {
+          "endpoint_gap_share": 0.09621382827371724,
+          "signed_area_share": 0.850186276285413,
+          "dominant_boundary_share": 1.0000000000000002,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.8501863813350844,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.8501863813350844
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra11310",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.041202833428639424,
+          "signed_area_share": 0.7100925372286343,
+          "dominant_boundary_share": 0.9999999999999999,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7100933621729686,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7100933621729688
+        },
+        "257": {
+          "endpoint_gap_share": 0.04113618793150285,
+          "signed_area_share": 0.7089730517103129,
+          "dominant_boundary_share": 1.0,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7089734313251785,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.7089734313251784
+        }
+      },
+      "ordered_return_share": 0.009174311926605505,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra15131",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.12743384992940532,
+          "signed_area_share": 0.7088262893997742,
+          "dominant_boundary_share": 1.0000000000000004,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7088262893997728,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7088262893997728
+        },
+        "257": {
+          "endpoint_gap_share": 0.12743384992940532,
+          "signed_area_share": 0.7054989766591863,
+          "dominant_boundary_share": 1.0000000000000002,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7054986029431359,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.7054986029431358
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra15091",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.07777879087206295,
+          "signed_area_share": 0.7475108477484569,
+          "dominant_boundary_share": 0.9999999999999997,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.747510309672536,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.747510309672536
+        },
+        "257": {
+          "endpoint_gap_share": 0.07717379223015157,
+          "signed_area_share": 0.7428301149043048,
+          "dominant_boundary_share": 0.9999999999999998,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.7428302389803315,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.7428302389803316
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12542",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.010070357081236464,
+          "signed_area_share": 0.545288656095908,
+          "dominant_boundary_share": 0.7922824510362475,
+          "secondary_boundary_share": 0.05658069380379171,
+          "largest_block_area_share": 0.5444915056761576,
+          "second_block_area_share": 0.0007704628009935057,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.5444915056761579
+        },
+        "257": {
+          "endpoint_gap_share": 0.010070357081236464,
+          "signed_area_share": 0.540802304598341,
+          "dominant_boundary_share": 0.7909711096914245,
+          "secondary_boundary_share": 0.05160617154391517,
+          "largest_block_area_share": 0.5404103388288143,
+          "second_block_area_share": 0.0005257665547582335,
+          "main_largest_face_share": 0.999939604127725,
+          "largest_bounded_face_area_share": 0.5403777002750143
+        }
+      },
+      "ordered_return_share": 0.13368983957219252,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra11883",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03648164517845004,
+          "signed_area_share": 0.5655843321531362,
+          "dominant_boundary_share": 0.6665085641323503,
+          "secondary_boundary_share": 0.04459254160753173,
+          "largest_block_area_share": 0.5631640836136262,
+          "second_block_area_share": 0.000695519551707373,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.5631640836136261
+        },
+        "257": {
+          "endpoint_gap_share": 0.03648164517845004,
+          "signed_area_share": 0.5648638765814916,
+          "dominant_boundary_share": 0.6557327211069597,
+          "secondary_boundary_share": 0.17942737815271267,
+          "largest_block_area_share": 0.5620840954027588,
+          "second_block_area_share": 0.0020737804507771993,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.5620840954027588
+        }
+      },
+      "ordered_return_share": 0.2918918918918919,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun13309",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均形成有明显围合面积的主导环边界。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.08749781918825694,
+          "signed_area_share": 0.424884236947571,
+          "dominant_boundary_share": 0.5079581593504935,
+          "secondary_boundary_share": 0.12498907230039723,
+          "largest_block_area_share": 0.4210741475784563,
+          "second_block_area_share": 0.003584055625065521,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.42107414757845624
+        },
+        "257": {
+          "endpoint_gap_share": 0.08749781918825694,
+          "signed_area_share": 0.4238474122269262,
+          "dominant_boundary_share": 0.4565667930611112,
+          "secondary_boundary_share": 0.11739555226250273,
+          "largest_block_area_share": 0.4192362793280827,
+          "second_block_area_share": 0.0036349447574274486,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.41923627932808266
+        }
+      },
+      "ordered_return_share": 0.49581589958158995,
+      "wider_ordered_return_share": 0.5126050420168067
+    },
+    {
+      "topRouteId": "tkrun12725",
+      "expected": 2,
+      "actual": 2,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均沿同一个闭合主体同向绕行多圈。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.3666848318192858,
+          "signed_area_share": 2.9929967780333953,
+          "repeated_ring": true
+        },
+        "257": {
+          "endpoint_gap_share": 0.3666848318192858,
+          "signed_area_share": 2.9897228342290636,
+          "repeated_ring": true
+        }
+      },
+      "ordered_return_share": 0.15076335877862596,
+      "wider_ordered_return_share": 0.15677966101694915
+    },
+    {
+      "topRouteId": "tkcyc11613",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0319940659298552,
+          "signed_area_share": 0.0072430469990870106,
+          "dominant_boundary_share": 0.2996067867407592,
+          "secondary_boundary_share": 0.1769755838981167,
+          "largest_block_area_share": 0.009148755493296525,
+          "second_block_area_share": 0.0012410864068984969,
+          "main_largest_face_share": 0.07009835048713942,
+          "largest_bounded_face_area_share": 0.0012410864068984964
+        },
+        "257": {
+          "endpoint_gap_share": 0.0319940659298552,
+          "signed_area_share": 0.007875800524920875,
+          "dominant_boundary_share": 0.28167347257208347,
+          "secondary_boundary_share": 0.1456661370345488,
+          "largest_block_area_share": 0.004423103294750617,
+          "second_block_area_share": 0.0011630282732677563,
+          "main_largest_face_share": 0.36375014335488737,
+          "largest_bounded_face_area_share": 0.0016089044575390119
+        }
+      },
+      "ordered_return_share": 0.47752808988764045,
+      "wider_ordered_return_share": 0.6959847036328872
+    },
+    {
+      "topRouteId": "tkcyc11839",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.030736906341890403,
+          "signed_area_share": 0.005009043052923147,
+          "dominant_boundary_share": 0.09053971335775292,
+          "secondary_boundary_share": 0.06716054195850524,
+          "largest_block_area_share": 0.001702311220088512,
+          "second_block_area_share": 0.0009475529446209565,
+          "main_largest_face_share": 0.9999999999999988,
+          "largest_bounded_face_area_share": 0.001702311220088512
+        },
+        "257": {
+          "endpoint_gap_share": 0.03067929023887398,
+          "signed_area_share": 0.004805044864889754,
+          "dominant_boundary_share": 0.22228363908936966,
+          "secondary_boundary_share": 0.09586863824006626,
+          "largest_block_area_share": 0.0020459228410679912,
+          "second_block_area_share": 0.0019998186208085565,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.002045922841067998
+        }
+      },
+      "ordered_return_share": 0.8306878306878307,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkcyc11872",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0084120117776608,
+          "signed_area_share": 0.0037166026364919536,
+          "dominant_boundary_share": 0.4890935746540888,
+          "secondary_boundary_share": 0.008113728988001636,
+          "largest_block_area_share": 0.02632759511989,
+          "second_block_area_share": 8.146722465668281e-05,
+          "main_largest_face_share": 0.052734569373306506,
+          "largest_bounded_face_area_share": 0.0013883743912821648
+        },
+        "257": {
+          "endpoint_gap_share": 0.008375010881094816,
+          "signed_area_share": 0.005578902788507581,
+          "dominant_boundary_share": 0.49417570716121795,
+          "secondary_boundary_share": 0.0037597199123947616,
+          "largest_block_area_share": 0.011370899946401329,
+          "second_block_area_share": 8.352429082835769e-05,
+          "main_largest_face_share": 0.022010460491989074,
+          "largest_bounded_face_area_share": 0.0002502787440286271
+        }
+      },
+      "ordered_return_share": 0.2511144130757801,
+      "wider_ordered_return_share": 0.2555720653789004
+    },
+    {
+      "topRouteId": "tkcyc11240",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.01843176335393598,
+          "signed_area_share": 0.002086917576929185,
+          "dominant_boundary_share": 0.07687529876922267,
+          "secondary_boundary_share": 0.07602615421906424,
+          "largest_block_area_share": 0.00037135113804222665,
+          "second_block_area_share": 0.0002610634141747369,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.00037135113804222665
+        },
+        "257": {
+          "endpoint_gap_share": 0.01843176335393598,
+          "signed_area_share": 0.00204427118154256,
+          "dominant_boundary_share": 0.07607105051390392,
+          "secondary_boundary_share": 0.07111366570075649,
+          "largest_block_area_share": 0.00031567231135863253,
+          "second_block_area_share": 0.00029961722155480474,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0003156723113586324
+        }
+      },
+      "ordered_return_share": 0.9679144385026738,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkcyc11083",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.025526544732143202,
+          "signed_area_share": 0.00513018924109083,
+          "dominant_boundary_share": 0.5084097610640508,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.024267512869001185,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.03521094309037475,
+          "largest_bounded_face_area_share": 0.0008544820145753377
+        },
+        "257": {
+          "endpoint_gap_share": 0.02550052845535879,
+          "signed_area_share": 0.00393771407556403,
+          "dominant_boundary_share": 0.5078265226666778,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.008274058241209055,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.028605231920548316,
+          "largest_bounded_face_area_share": 0.00023668135491390914
+        }
+      },
+      "ordered_return_share": 0.65625,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkcyc10644",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.01818121576655556,
+          "signed_area_share": 0.004009755455943365,
+          "dominant_boundary_share": 0.20855786243884378,
+          "secondary_boundary_share": 0.11074000867680876,
+          "largest_block_area_share": 0.0010454017515429098,
+          "second_block_area_share": 0.000798182886841066,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0010454017515429098
+        },
+        "257": {
+          "endpoint_gap_share": 0.01806673907570835,
+          "signed_area_share": 0.0033522116168017697,
+          "dominant_boundary_share": 0.09405204763666647,
+          "secondary_boundary_share": 0.07294558591938838,
+          "largest_block_area_share": 0.0011203331325511819,
+          "second_block_area_share": 0.00036151339072322444,
+          "main_largest_face_share": 0.999999999999999,
+          "largest_bounded_face_area_share": 0.001120333132551182
+        }
+      },
+      "ordered_return_share": 0.9278074866310161,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkcyc11766",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.011511841897717841,
+          "signed_area_share": 0.011666136165885169,
+          "dominant_boundary_share": 0.2105627979220151,
+          "secondary_boundary_share": 0.1563799304402857,
+          "largest_block_area_share": 0.002481685613109743,
+          "second_block_area_share": 0.0023412698032852404,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.0024816856131097426
+        },
+        "257": {
+          "endpoint_gap_share": 0.011505355721689878,
+          "signed_area_share": 0.011822619737356599,
+          "dominant_boundary_share": 0.5623146267553963,
+          "secondary_boundary_share": 0.4367081291169298,
+          "largest_block_area_share": 0.006773911726857313,
+          "second_block_area_share": 0.005049184258724773,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.006773911726857351
+        }
+      },
+      "ordered_return_share": 0.9478609625668449,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkcyc12018",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.007132159736483407,
+          "signed_area_share": 0.022392677284022822,
+          "dominant_boundary_share": 0.34976954642696817,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.044926442521171166,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.016980818694038006,
+          "largest_bounded_face_area_share": 0.0007628877750201272
+        },
+        "257": {
+          "endpoint_gap_share": 0.007110331999864342,
+          "signed_area_share": 0.02302781693338242,
+          "dominant_boundary_share": 0.34227349241647437,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.018793365083068263,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.026977845414997013,
+          "largest_bounded_face_area_share": 0.0005070044980386181
+        }
+      },
+      "ordered_return_share": 0.3950762016412661,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktrk256",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03695802215859599,
+          "signed_area_share": 0.00803055223411923,
+          "dominant_boundary_share": 0.09008854269920097,
+          "secondary_boundary_share": 0.0886970945497882,
+          "largest_block_area_share": 0.004589832380937187,
+          "second_block_area_share": 0.003936681588653939,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.004589832380937187
+        },
+        "257": {
+          "endpoint_gap_share": 0.03695263256945209,
+          "signed_area_share": 0.009010622974036937,
+          "dominant_boundary_share": 0.08642179968158455,
+          "secondary_boundary_share": 0.0834458204844396,
+          "largest_block_area_share": 0.004529450348847491,
+          "second_block_area_share": 0.0035010492575334646,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.004529450348847491
+        }
+      },
+      "ordered_return_share": 0.40540540540540543,
+      "wider_ordered_return_share": 0.6645702306079665
+    },
+    {
+      "topRouteId": "tktrk956",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0027527872064585963,
+          "signed_area_share": 0.009689244084583111,
+          "dominant_boundary_share": 0.34832736466628517,
+          "secondary_boundary_share": 0.12906318618213092,
+          "largest_block_area_share": 0.004464247850065439,
+          "second_block_area_share": 0.00396789453360941,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.004464247850065443
+        },
+        "257": {
+          "endpoint_gap_share": 0.0027527872064585963,
+          "signed_area_share": 0.009535179910849277,
+          "dominant_boundary_share": 0.16403996641721605,
+          "secondary_boundary_share": 0.14340786112625664,
+          "largest_block_area_share": 0.0036108692356112038,
+          "second_block_area_share": 0.0025486278351174165,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0036108692356112038
+        }
+      },
+      "ordered_return_share": 0.9331550802139037,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13524",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.09715038698098764,
+          "signed_area_share": 0.01031461524495786,
+          "dominant_boundary_share": 0.5074857789264129,
+          "secondary_boundary_share": 0.0027791115894610858,
+          "largest_block_area_share": 0.07868000397791901,
+          "second_block_area_share": 1.9754762293057976e-05,
+          "main_largest_face_share": 0.45503100785555606,
+          "largest_bounded_face_area_share": 0.03580184150815165
+        },
+        "257": {
+          "endpoint_gap_share": 0.09531540549788974,
+          "signed_area_share": 0.010788048128029745,
+          "dominant_boundary_share": 0.5064998289139714,
+          "secondary_boundary_share": 0.007145139355801886,
+          "largest_block_area_share": 0.07367001950278766,
+          "second_block_area_share": 5.2799403945063116e-05,
+          "main_largest_face_share": 0.49303890964697444,
+          "largest_bounded_face_area_share": 0.036322186089325775
+        }
+      },
+      "ordered_return_share": 0.3544715447154472,
+      "wider_ordered_return_share": 0.43448275862068964
+    },
+    {
+      "topRouteId": "tktra11936",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.050481210853082846,
+          "signed_area_share": 0.058916993640798124,
+          "dominant_boundary_share": 0.28749565474823985,
+          "secondary_boundary_share": 0.11402599103722835,
+          "largest_block_area_share": 0.0363686193781231,
+          "second_block_area_share": 0.011672291630548712,
+          "main_largest_face_share": 0.04755744846394531,
+          "largest_bounded_face_area_share": 0.011672291630548712
+        },
+        "257": {
+          "endpoint_gap_share": 0.050481210853082846,
+          "signed_area_share": 0.06067566991899498,
+          "dominant_boundary_share": 0.289959058076588,
+          "secondary_boundary_share": 0.12238834443286008,
+          "largest_block_area_share": 0.026303535493526636,
+          "second_block_area_share": 0.013897440359131524,
+          "main_largest_face_share": 0.10620202416154535,
+          "largest_bounded_face_area_share": 0.013897440359131532
+        }
+      },
+      "ordered_return_share": 0.4091778202676864,
+      "wider_ordered_return_share": 0.3951890034364261
+    },
+    {
+      "topRouteId": "tktra11364",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.1944352872290503,
+          "signed_area_share": 0.03658423586471256,
+          "dominant_boundary_share": 0.2935763675888546,
+          "secondary_boundary_share": 0.10769658831171589,
+          "largest_block_area_share": 0.01128511497284566,
+          "second_block_area_share": 0.011004229013965625,
+          "main_largest_face_share": 0.3777728109147898,
+          "largest_bounded_face_area_share": 0.011004229013965625
+        },
+        "257": {
+          "endpoint_gap_share": 0.1944352872290503,
+          "signed_area_share": 0.03779818255005178,
+          "dominant_boundary_share": 0.46602103053705524,
+          "secondary_boundary_share": 0.15671716982271627,
+          "largest_block_area_share": 0.020817078463660856,
+          "second_block_area_share": 0.011268108956616589,
+          "main_largest_face_share": 0.724261628729352,
+          "largest_bounded_face_area_share": 0.015077011153477728
+        }
+      },
+      "ordered_return_share": 0.7336956521739131,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13172",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.011384329156967186,
+          "signed_area_share": 0.06686687615868737,
+          "dominant_boundary_share": 0.4836388633323252,
+          "secondary_boundary_share": 0.030380141269479695,
+          "largest_block_area_share": 0.07502593046043603,
+          "second_block_area_share": 0.0014717034901231836,
+          "main_largest_face_share": 0.15254699108988862,
+          "largest_bounded_face_area_share": 0.011444979945458737
+        },
+        "257": {
+          "endpoint_gap_share": 0.011350450883917928,
+          "signed_area_share": 0.06543445861134735,
+          "dominant_boundary_share": 0.504215010402693,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.07090928224386998,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.25011842695184533,
+          "largest_bounded_face_area_share": 0.01773571813112118
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13888",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.05184332258992589,
+          "signed_area_share": 0.003132222712554553,
+          "dominant_boundary_share": 0.1719138337745243,
+          "secondary_boundary_share": 0.1146388640694273,
+          "largest_block_area_share": 0.004553727411373612,
+          "second_block_area_share": 0.003698373286141327,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.004553727411373612
+        },
+        "257": {
+          "endpoint_gap_share": 0.051628613748133635,
+          "signed_area_share": 0.0022080333415995927,
+          "dominant_boundary_share": 0.167925680352367,
+          "secondary_boundary_share": 0.12560719487627295,
+          "largest_block_area_share": 0.00457382304704726,
+          "second_block_area_share": 0.0034654482192798953,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0045738230470472605
+        }
+      },
+      "ordered_return_share": 0.9239332096474954,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra15052",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "近邻走廊覆盖显著且没有主导环边界；放宽定位偏移后，两侧行程仍有序反向重合。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.0461179598832122,
+          "signed_area_share": 0.020714099308323245,
+          "dominant_boundary_share": 0.15677363528115465,
+          "secondary_boundary_share": 0.0905706557528143,
+          "largest_block_area_share": 0.004585680760371896,
+          "second_block_area_share": 0.004250293276907764,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.004585680760371897
+        },
+        "257": {
+          "endpoint_gap_share": 0.04599200324908468,
+          "signed_area_share": 0.018083239459896025,
+          "dominant_boundary_share": 0.24950835323389728,
+          "secondary_boundary_share": 0.13960571308953293,
+          "largest_block_area_share": 0.005723955808823296,
+          "second_block_area_share": 0.003864349980979743,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.005723955808823296
+        }
+      },
+      "ordered_return_share": 0.6613756613756614,
+      "wider_ordered_return_share": 0.9168110918544194
+    },
+    {
+      "topRouteId": "tktra10908",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03981590715543906,
+          "signed_area_share": 0.014300656738595575,
+          "dominant_boundary_share": 0.08674037773115986,
+          "secondary_boundary_share": 0.06670854631721933,
+          "largest_block_area_share": 0.012561304510861881,
+          "second_block_area_share": 0.004854670212536524,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.012561304510861881
+        },
+        "257": {
+          "endpoint_gap_share": 0.03931744494250897,
+          "signed_area_share": 0.01622027127417303,
+          "dominant_boundary_share": 0.0851572543837238,
+          "secondary_boundary_share": 0.0776696189312335,
+          "largest_block_area_share": 0.012521835894546278,
+          "second_block_area_share": 0.005707629453124695,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.012521835894546278
+        }
+      },
+      "ordered_return_share": 0.7234600262123198,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12836",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03930191962598871,
+          "signed_area_share": 0.009187798555615325,
+          "dominant_boundary_share": 0.09641142740004612,
+          "secondary_boundary_share": 0.0893419509041903,
+          "largest_block_area_share": 0.003919457780382985,
+          "second_block_area_share": 0.002268976788561352,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.003919457780382986
+        },
+        "257": {
+          "endpoint_gap_share": 0.03921493726058873,
+          "signed_area_share": 0.010491194064675174,
+          "dominant_boundary_share": 0.15996279735378416,
+          "secondary_boundary_share": 0.09132127097673987,
+          "largest_block_area_share": 0.00422155005975437,
+          "second_block_area_share": 0.0022162012111149212,
+          "main_largest_face_share": 0.9999999999999996,
+          "largest_bounded_face_area_share": 0.004221550059754371
+        }
+      },
+      "ordered_return_share": 0.9344262295081968,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12463",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.10307136027525732,
+          "signed_area_share": 0.11188992677706307,
+          "dominant_boundary_share": 0.3124565807687073,
+          "secondary_boundary_share": 0.25040262471657554,
+          "largest_block_area_share": 0.1252397984625672,
+          "second_block_area_share": 0.006268304161245392,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.12523979846256722
+        },
+        "257": {
+          "endpoint_gap_share": 0.10307136027525732,
+          "signed_area_share": 0.11092386069604226,
+          "dominant_boundary_share": 0.3990074628660984,
+          "secondary_boundary_share": 0.3158154476061766,
+          "largest_block_area_share": 0.1244256242562098,
+          "second_block_area_share": 0.007234906545942122,
+          "main_largest_face_share": 0.9999999999999993,
+          "largest_bounded_face_area_share": 0.1244256242562098
+        }
+      },
+      "ordered_return_share": 0.7699530516431925,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra15078",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.10576052645957269,
+          "signed_area_share": 0.021205739958108465,
+          "dominant_boundary_share": 0.29786620745194536,
+          "secondary_boundary_share": 0.19967956536613318,
+          "largest_block_area_share": 0.012147816774257976,
+          "second_block_area_share": 0.004378094039384537,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.012147816774257983
+        },
+        "257": {
+          "endpoint_gap_share": 0.10558847463085855,
+          "signed_area_share": 0.02118694613830185,
+          "dominant_boundary_share": 0.3037078290350316,
+          "secondary_boundary_share": 0.1847306891099134,
+          "largest_block_area_share": 0.012723009131326748,
+          "second_block_area_share": 0.004227649728011107,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.012723009131326752
+        }
+      },
+      "ordered_return_share": 0.8378947368421052,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra10293",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.015561865395972815,
+          "signed_area_share": 0.00801995023500819,
+          "dominant_boundary_share": 0.1350835637390998,
+          "secondary_boundary_share": 0.12667499282997857,
+          "largest_block_area_share": 0.003861864081176794,
+          "second_block_area_share": 0.002596379736192875,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.003861864081176794
+        },
+        "257": {
+          "endpoint_gap_share": 0.015561865395972815,
+          "signed_area_share": 0.008007942977534812,
+          "dominant_boundary_share": 0.18783789811159093,
+          "secondary_boundary_share": 0.10531450077566903,
+          "largest_block_area_share": 0.003912058682348574,
+          "second_block_area_share": 0.0034557873906774918,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.003912058682348574
+        }
+      },
+      "ordered_return_share": 0.8970588235294118,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra14850",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.02467819448524148,
+          "signed_area_share": 0.013099994035552518,
+          "dominant_boundary_share": 0.16352786568818525,
+          "secondary_boundary_share": 0.06132909558084839,
+          "largest_block_area_share": 0.004609393083839931,
+          "second_block_area_share": 0.002052968863926917,
+          "main_largest_face_share": 0.9999999999999987,
+          "largest_bounded_face_area_share": 0.004609393083839925
+        },
+        "257": {
+          "endpoint_gap_share": 0.02467119318051578,
+          "signed_area_share": 0.009928591891677415,
+          "dominant_boundary_share": 0.20238622410849255,
+          "secondary_boundary_share": 0.18988929443202354,
+          "largest_block_area_share": 0.004622742763952465,
+          "second_block_area_share": 0.003447682814228844,
+          "main_largest_face_share": 0.9999999999999972,
+          "largest_bounded_face_area_share": 0.004622742763952466
+        }
+      },
+      "ordered_return_share": 0.921957671957672,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13546",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.013064143067056916,
+          "signed_area_share": 0.004618094018847516,
+          "dominant_boundary_share": 0.064914807766656,
+          "secondary_boundary_share": 0.033930180970136906,
+          "largest_block_area_share": 0.0018662925316833678,
+          "second_block_area_share": 0.0012616734923537962,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0018662925316833682
+        },
+        "257": {
+          "endpoint_gap_share": 0.013064143067056916,
+          "signed_area_share": 0.005161008548758682,
+          "dominant_boundary_share": 0.06044142177557958,
+          "secondary_boundary_share": 0.05227187128797967,
+          "largest_block_area_share": 0.0014469872468684847,
+          "second_block_area_share": 0.0013098436611804019,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0014469872468684853
+        }
+      },
+      "ordered_return_share": 0.9024064171122995,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12519",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.06543302101314173,
+          "signed_area_share": 0.0068809381659130295,
+          "dominant_boundary_share": 0.28408267857609304,
+          "secondary_boundary_share": 0.16894486828219277,
+          "largest_block_area_share": 0.0027808030860030446,
+          "second_block_area_share": 0.002053437736246843,
+          "main_largest_face_share": 0.9999999999999996,
+          "largest_bounded_face_area_share": 0.0027808030860030433
+        },
+        "257": {
+          "endpoint_gap_share": 0.06541677515084315,
+          "signed_area_share": 0.006790403613415971,
+          "dominant_boundary_share": 0.25545021219480596,
+          "secondary_boundary_share": 0.18755874448690674,
+          "largest_block_area_share": 0.0025537839863695533,
+          "second_block_area_share": 0.0025448647854576798,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.002553783986369554
+        }
+      },
+      "ordered_return_share": 0.9050179211469535,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12235",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.002785802632759725,
+          "signed_area_share": 0.0022975774349799374,
+          "dominant_boundary_share": 0.1126534419219043,
+          "secondary_boundary_share": 0.06539831835865206,
+          "largest_block_area_share": 0.0071355410292523935,
+          "second_block_area_share": 0.002590340594578164,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.007135541029252392
+        },
+        "257": {
+          "endpoint_gap_share": 0.002785099133228105,
+          "signed_area_share": 0.00026434069638546086,
+          "dominant_boundary_share": 0.10206994849744694,
+          "secondary_boundary_share": 0.06390601117937522,
+          "largest_block_area_share": 0.006870908730173159,
+          "second_block_area_share": 0.001352376277826091,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.006870908730173159
+        }
+      },
+      "ordered_return_share": 0.9411764705882353,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13928",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体尺度下首尾均明显开放，原始轨迹只有局部小环和少量交叉。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.17434756046902034,
+          "signed_area_share": 0.4450505484011488,
+          "dominant_boundary_share": 0.9382713955487817,
+          "secondary_boundary_share": 0.031618904713820804,
+          "largest_block_area_share": 0.443765281707531,
+          "second_block_area_share": 0.0021461624282346,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.443765281707531
+        },
+        "257": {
+          "endpoint_gap_share": 0.17434756046902034,
+          "signed_area_share": 0.44130181936607227,
+          "dominant_boundary_share": 0.8933014957560678,
+          "secondary_boundary_share": 0.03546963677153513,
+          "largest_block_area_share": 0.435307682417506,
+          "second_block_area_share": 0.004760991217954991,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.435307682417506
+        }
+      },
+      "ordered_return_share": 0.03166666666666667,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra13719",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "近邻走廊覆盖显著且没有主导环边界；放宽定位偏移后，两侧行程仍有序反向重合。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.032997346857101525,
+          "signed_area_share": 0.01670179136217457,
+          "dominant_boundary_share": 0.14790099414159943,
+          "secondary_boundary_share": 0.10802306585626731,
+          "largest_block_area_share": 0.029380709443431206,
+          "second_block_area_share": 0.004285280431871674,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.029380709443431206
+        },
+        "257": {
+          "endpoint_gap_share": 0.032997346857101525,
+          "signed_area_share": 0.013469636240788145,
+          "dominant_boundary_share": 0.14555268297434001,
+          "secondary_boundary_share": 0.13407320100852035,
+          "largest_block_area_share": 0.02897398501576929,
+          "second_block_area_share": 0.004561414516732966,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.02897398501576929
+        }
+      },
+      "ordered_return_share": 0.4947089947089947,
+      "wider_ordered_return_share": 0.7987321711568938
+    },
+    {
+      "topRouteId": "tktra13317",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.039933339511729594,
+          "signed_area_share": 0.0019948825975918006,
+          "dominant_boundary_share": 0.15218906205977106,
+          "secondary_boundary_share": 0.08323214772254849,
+          "largest_block_area_share": 0.0006794960197612226,
+          "second_block_area_share": 0.0005763936660458001,
+          "main_largest_face_share": 0.9999999999999988,
+          "largest_bounded_face_area_share": 0.0006794960197612226
+        },
+        "257": {
+          "endpoint_gap_share": 0.039933339511729594,
+          "signed_area_share": 0.0018908859777126371,
+          "dominant_boundary_share": 0.14698821634097362,
+          "secondary_boundary_share": 0.0895771139454188,
+          "largest_block_area_share": 0.0006785230221727691,
+          "second_block_area_share": 0.0006443257439273675,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0006785230221727691
+        }
+      },
+      "ordered_return_share": 0.9391534391534392,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra11931",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.08677913903851009,
+          "signed_area_share": 0.01429676948659664,
+          "dominant_boundary_share": 0.2629716101228092,
+          "secondary_boundary_share": 0.08293918163855851,
+          "largest_block_area_share": 0.007494336145573145,
+          "second_block_area_share": 0.001720313468746751,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.007494336145573144
+        },
+        "257": {
+          "endpoint_gap_share": 0.08651356657275179,
+          "signed_area_share": 0.014887459679529829,
+          "dominant_boundary_share": 0.2854344401095918,
+          "secondary_boundary_share": 0.11505424865001183,
+          "largest_block_area_share": 0.00816881989568265,
+          "second_block_area_share": 0.0012633626130718794,
+          "main_largest_face_share": 0.9999999999999998,
+          "largest_bounded_face_area_share": 0.00816881989568265
+        }
+      },
+      "ordered_return_share": 0.9425287356321839,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun14314",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.023189394491596512,
+          "signed_area_share": 0.008054551094472112,
+          "dominant_boundary_share": 0.14475741043840115,
+          "secondary_boundary_share": 0.1013954447806102,
+          "largest_block_area_share": 0.0024034691339604687,
+          "second_block_area_share": 0.001838062966925256,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.0024034691339604687
+        },
+        "257": {
+          "endpoint_gap_share": 0.023189394491596512,
+          "signed_area_share": 0.011534661790914329,
+          "dominant_boundary_share": 0.24093474804552018,
+          "secondary_boundary_share": 0.13498157658393686,
+          "largest_block_area_share": 0.003379411552175566,
+          "second_block_area_share": 0.0021373693489197634,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.0033794115521755663
+        }
+      },
+      "ordered_return_share": 0.8756684491978609,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun14719",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.04515298506972087,
+          "signed_area_share": 0.006463916280769978,
+          "dominant_boundary_share": 0.11945185245543731,
+          "secondary_boundary_share": 0.11892388020201249,
+          "largest_block_area_share": 0.0040504694136147415,
+          "second_block_area_share": 0.0022450380493162204,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.00405046941361474
+        },
+        "257": {
+          "endpoint_gap_share": 0.04515298506972087,
+          "signed_area_share": 0.006224199880320978,
+          "dominant_boundary_share": 0.1038525079379056,
+          "secondary_boundary_share": 0.09567333454019401,
+          "largest_block_area_share": 0.003965415241780978,
+          "second_block_area_share": 0.002121022241212447,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.003965415241780977
+        }
+      },
+      "ordered_return_share": 0.8363636363636363,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun13892",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.16932067295555273,
+          "signed_area_share": 0.0687407024453832,
+          "dominant_boundary_share": 0.5863625711441239,
+          "secondary_boundary_share": 0.01272435835058258,
+          "largest_block_area_share": 0.1562315547155181,
+          "second_block_area_share": 0.00023479255612065384,
+          "main_largest_face_share": 0.26591385034754594,
+          "largest_bounded_face_area_share": 0.04154413426018672
+        },
+        "257": {
+          "endpoint_gap_share": 0.16765103050358346,
+          "signed_area_share": 0.0659788130135434,
+          "dominant_boundary_share": 0.5865815984624019,
+          "secondary_boundary_share": 0.0,
+          "largest_block_area_share": 0.15728815770945836,
+          "second_block_area_share": 0.0,
+          "main_largest_face_share": 0.25702712642391223,
+          "largest_bounded_face_area_share": 0.040427323196573196
+        }
+      },
+      "ordered_return_share": 0.32563025210084034,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun11166",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.045560618158995175,
+          "signed_area_share": 0.004835181230723768,
+          "dominant_boundary_share": 0.33240225807206264,
+          "secondary_boundary_share": 0.2154719735280353,
+          "largest_block_area_share": 0.006640188228074033,
+          "second_block_area_share": 0.003147752831427055,
+          "main_largest_face_share": 0.9999999999999999,
+          "largest_bounded_face_area_share": 0.006640188228074031
+        },
+        "257": {
+          "endpoint_gap_share": 0.045336375925374726,
+          "signed_area_share": 0.005578793034396617,
+          "dominant_boundary_share": 0.1993724697084002,
+          "secondary_boundary_share": 0.1991467781836394,
+          "largest_block_area_share": 0.00511537026035533,
+          "second_block_area_share": 0.0030459800613120967,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.005115370260355329
+        }
+      },
+      "ordered_return_share": 0.9354275741710296,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tkrun12807",
+      "expected": 3,
+      "actual": 3,
+      "reason_code": null,
+      "reasons": [
+        "折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03259397083042364,
+          "signed_area_share": 0.012195038751483695,
+          "dominant_boundary_share": 0.3437652226624295,
+          "secondary_boundary_share": 0.19975867124913133,
+          "largest_block_area_share": 0.005320751677343375,
+          "second_block_area_share": 0.003175849229335372,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.005320751677343375
+        },
+        "257": {
+          "endpoint_gap_share": 0.03259397083042364,
+          "signed_area_share": 0.012190997555615219,
+          "dominant_boundary_share": 0.37473821973301774,
+          "secondary_boundary_share": 0.28729296501928747,
+          "largest_block_area_share": 0.005632871258517579,
+          "second_block_area_share": 0.0033684955277617505,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.005632871258517579
+        }
+      },
+      "ordered_return_share": 0.8983870967741936,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra10014",
+      "expected": 4,
+      "actual": 4,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均存在两个显著的闭合主体。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.022380577506473993,
+          "signed_area_share": 0.49772930653474867,
+          "dominant_boundary_share": 0.4666562261028587,
+          "secondary_boundary_share": 0.34978057001131485,
+          "largest_block_area_share": 0.2668954909689576,
+          "second_block_area_share": 0.23177231999011583,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.2668954909689576
+        },
+        "257": {
+          "endpoint_gap_share": 0.02219807031212577,
+          "signed_area_share": 0.48474949411126506,
+          "dominant_boundary_share": 0.46262952159381115,
+          "secondary_boundary_share": 0.334977703214394,
+          "largest_block_area_share": 0.2589812110023803,
+          "second_block_area_share": 0.22631701306168836,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.2589812110023803
+        }
+      },
+      "ordered_return_share": null,
+      "wider_ordered_return_share": null
+    },
+    {
+      "topRouteId": "tktra12268",
+      "expected": 4,
+      "actual": 4,
+      "reason_code": null,
+      "reasons": [
+        "两种整体采样尺度下均存在两个显著的闭合主体。"
+      ],
+      "macro_outlines": {
+        "129": {
+          "endpoint_gap_share": 0.03446403171086463,
+          "signed_area_share": 0.5214018182762159,
+          "dominant_boundary_share": 0.4600746456010341,
+          "secondary_boundary_share": 0.4308983231857148,
+          "largest_block_area_share": 0.3233498165495362,
+          "second_block_area_share": 0.1982374957420576,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.3233498165495362
+        },
+        "257": {
+          "endpoint_gap_share": 0.03434910183147444,
+          "signed_area_share": 0.5121321129721172,
+          "dominant_boundary_share": 0.45679492045358766,
+          "secondary_boundary_share": 0.4352850668247165,
+          "largest_block_area_share": 0.31808782203302316,
+          "second_block_area_share": 0.19428462194043525,
+          "main_largest_face_share": 1.0,
+          "largest_bounded_face_area_share": 0.31808782203302316
+        }
+      },
+      "ordered_return_share": 0.10828877005347594,
+      "wider_ordered_return_share": null
+    }
+  ]
+}

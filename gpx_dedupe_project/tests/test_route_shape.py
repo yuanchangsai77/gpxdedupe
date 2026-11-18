@@ -117,6 +117,72 @@ class RouteShapeTests(unittest.TestCase):
         points = np.asarray([[0, 0], [500, 0], [1000, 0], [750, 0], [0, 0]], dtype=float)
         self.assertEqual(self.classify(points)['category'], 3)
 
+    def test_offset_return_with_open_tail_is_non_ring(self):
+        points = np.asarray([[0, 0], [1000, 0], [1000, 5], [40, 5]], dtype=float)
+        for variant in (points, points[::-1], line(points, step=13.)):
+            with self.subTest(points=len(variant)):
+                result = self.classify(variant)
+                self.assertEqual(result['category'], 3)
+                self.assertGreaterEqual(result['metrics']['ordered_return_share'], .70)
+
+    def test_ordered_return_tolerates_wider_drift_on_part_of_the_corridor(self):
+        points = np.asarray([[0, 0], [1000, 0], [1000, 5], [650, 5],
+                             [550, 18], [80, 18]], dtype=float)
+        for variant in (points, points[::-1], line(points, step=13.)):
+            with self.subTest(points=len(variant)):
+                result = self.classify(variant)
+                self.assertEqual(result['category'], 3)
+                self.assertLess(result['metrics']['ordered_return_share'], .70)
+                self.assertGreaterEqual(result['metrics']['wider_ordered_return_share'], .70)
+
+    def test_macro_ring_with_short_gap_and_small_local_crossing(self):
+        points = np.asarray([[0, 0], [1500, 0], [1500, 1600], [400, 1600],
+                             [395, 1580], [380, 1600], [395, 1610],
+                             [405, 1590], [0, 1600], [0, 180]], dtype=float)
+        for variant in (points, points[::-1], line(points, step=17.)):
+            with self.subTest(points=len(variant)):
+                result = self.classify(variant)
+                self.assertEqual(result['category'], 2)
+                self.assertEqual(set(result['metrics']['macro_outlines']), {'129', '257'})
+
+    def test_macro_two_lobes_with_short_gap_are_nonstandard(self):
+        points = np.asarray([[0, 180], [-1200, 1000], [0, 2000],
+                             [1200, 1000], [0, 0], [-1200, -1000],
+                             [0, -2000], [1200, -1000], [0, -180]], dtype=float)
+        result = self.classify(points)
+        self.assertEqual(result['category'], 4)
+        self.assertEqual(set(result['metrics']['macro_outlines']), {'129', '257'})
+
+    def test_macro_multiple_laps_with_partial_last_lap_are_one_ring(self):
+        angles = np.linspace(0, 8.7 * np.pi, 400)
+        points = 300 * np.column_stack([np.cos(angles), np.sin(angles)])
+        for variant in (points, points[::-1]):
+            result = self.classify(variant)
+            self.assertEqual(result['category'], 2)
+            self.assertTrue(all(outline['repeated_ring']
+                                for outline in result['metrics']['macro_outlines'].values()))
+
+    def test_macro_ring_with_narrow_internal_excursion(self):
+        points = np.asarray([[0, 0], [0, 1600], [1400, 100], [1380, 100],
+                             [0, 1580], [0, 1600], [1600, 1600],
+                             [1600, 0], [160, 0]], dtype=float)
+        result = self.classify(points)
+        self.assertEqual(result['category'], 2)
+        for outline in result['metrics']['macro_outlines'].values():
+            self.assertGreaterEqual(outline['main_largest_face_share'], .92)
+
+    def test_macro_open_outline_stays_non_ring_with_a_local_crossing(self):
+        points = np.asarray([[0, 0], [1800, 0], [1800, 600], [1830, 650],
+                             [1790, 650], [1820, 600], [1800, 1800],
+                             [0, 1800], [0, 600]], dtype=float)
+        for variant in (points, points[::-1], line(points, step=17.)):
+            with self.subTest(points=len(variant)):
+                result = self.classify(variant)
+                self.assertEqual(result['category'], 3)
+                self.assertTrue(all(outline['endpoint_gap_share'] > .15
+                                    for outline in result['metrics']['macro_outlines'].values()))
+                self.assertLess(result['metrics']['dominant_boundary_share'], .08)
+
     def test_review_butterfly_class_is_independent_of_sampling(self):
         points = np.asarray([[0, 0], [800, 400], [0, 400], [400, 0], [0, 0]], dtype=float)
         results = [self.classify(variant) for variant in (points, line(points, step=8),

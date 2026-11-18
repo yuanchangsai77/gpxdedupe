@@ -21,7 +21,8 @@ import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
-from scipy.spatial import cKDTree
+from scipy.spatial import ConvexHull, QhullError, cKDTree
+from scipy.spatial.distance import pdist
 from pyproj import Transformer
 
 
@@ -941,6 +942,7 @@ def _block_boundary(block, vertices, pairs, weights, cfg, work):
     return {'edges': block, 'nodes': list(neighbors), 'boundary_nodes': boundary,
             'length_m': float(sum(weights[e] for e in block)), 'boundary_m': float(perimeter),
             'area_m2': abs(area), 'cycle_rank': len(block) - len(neighbors) + 1,
+            'largest_face_area_m2': max((signed for signed, _ in faces), default=0.),
             'internal_share': max(0., 1 - perimeter / sum(weights[e] for e in block))}
 
 
@@ -1369,6 +1371,7 @@ def _shape_metrics(coords, xy, cfg):
             'dominant_boundary_share': main_length / total,
             'secondary_boundary_share': secondary / total,
             'main_internal_share': main['internal_share'] if main else 0.,
+            'main_largest_face_share': min(1., main['largest_face_area_m2'] / main['area_m2']) if main else 0.,
             'interior_bridge_share': interior_bridges / total,
             'main_cycle_rank': main['cycle_rank'] if main else 0,
             'main_span_share': ring_span / scale,
@@ -1376,6 +1379,7 @@ def _shape_metrics(coords, xy, cfg):
             'ring_block_count': len(blocks), 'bridge_share': 1 - cyclic / total,
             'cycle_boundaries_m': [block['boundary_m'] for block in blocks[:32]],
             'cycle_areas_m2': [block['area_m2'] for block in blocks[:32]],
+            'largest_bounded_face_area_m2': max((block['largest_face_area_m2'] for block in blocks), default=0.),
             'candidate_pairs': pair_work, 'geometry_guard_pairs': guard_work['pairs'],
             'near_corridor_share': min(1., guard_work['near_corridor_length_m'] / total),
             'unresolved_crossing_share': min(1., guard_work['crossing_length_m'] / total),
@@ -1520,7 +1524,167 @@ def classify_coordinates(coords, config=None):
     return _classify_prepared(coords, xy, distances, cfg)
 
 
+def _ordered_return_share(xy, distances, width):
+    """Measure the weaker arm of an out-and-back traversal by arc length."""
+    sample_count = min(1501, max(51, int(distances[-1] / (width / 2)) + 1))
+    grid = np.linspace(0, distances[-1], sample_count)
+    points = np.column_stack([np.interp(grid, distances, axis) for axis in xy.T])
+    best = 0.
+    turns = np.unique(np.rint(np.linspace(.35, .65, 61) * (sample_count - 1)).astype(int))
+    for turn in turns:
+        outbound, inbound = points[:turn + 1], points[turn:][::-1]
+        distance_to_inbound, inbound_indices = cKDTree(inbound).query(outbound)
+        distance_to_outbound, outbound_indices = cKDTree(outbound).query(inbound)
+        shares = []
+        for arm, other, gaps, indices in (
+                (outbound, inbound, distance_to_inbound, inbound_indices),
+                (inbound, outbound, distance_to_outbound, outbound_indices)):
+            # Compare short chords oriented toward the turn on both arms.
+            arm_chords = arm[3:] - arm[:-3]
+            other_chords = other[indices[3:]] - other[indices[:-3]]
+            scales = np.linalg.norm(arm_chords, axis=1) * np.linalg.norm(other_chords, axis=1)
+            aligned = np.sum(arm_chords * other_chords, axis=1) >= .8 * scales
+            matched = ((gaps[:-3] <= width) & (gaps[3:] <= width)
+                       & (indices[3:] > indices[:-3]) & (scales > 0) & aligned)
+            shares.append(float(np.mean(matched)))
+        best = max(best, min(shares))
+    return best
+
+
+def _outline_area(points):
+    next_points = np.roll(points, -1, axis=0)
+    return abs(float(np.sum(points[:, 0] * next_points[:, 1]
+                            - points[:, 1] * next_points[:, 0]))) / 2
+
+
+def _repeated_macro_ring(outline, hull, extent):
+    """Compare complete revolutions at equal angular phases around the outline."""
+    centered = outline - np.mean(outline[hull.vertices], axis=0)
+    angle = np.unwrap(np.arctan2(centered[:, 1], centered[:, 0]))
+    turn = angle[-1] - angle[0]
+    phase = (angle - angle[0]) * np.sign(turn) / (2 * np.pi)
+    laps = int(phase[-1])
+    if laps < 2 or abs(turn) < .8 * float(np.sum(np.abs(np.diff(angle)))):
+        return False
+    advancing = np.r_[True, phase[1:] > np.maximum.accumulate(phase)[:-1]]
+    phases = phase[advancing]
+    if np.interp(laps, phases, np.flatnonzero(advancing)) < .60 * (len(outline) - 1):
+        return False
+
+    previous = None
+    for lap in range(laps):
+        grid = np.linspace(lap, lap + 1, 65)
+        current = np.column_stack([np.interp(grid, phases, axis[advancing]) for axis in outline.T])
+        if _outline_area(current) < .35 * hull.volume:
+            return False
+        if previous is not None and np.quantile(np.linalg.norm(current - previous, axis=1), .85) > .12 * extent:
+            return False
+        previous = current
+    return True
+
+
+def _macro_shape(xy, distances, cfg, sample_count):
+    """Evaluate the ordered outline at a coarser scale than individual fixes."""
+    samples = np.linspace(0, distances[-1], sample_count)
+    outline = np.column_stack([np.interp(samples, distances, axis) for axis in xy.T])
+    outline -= outline[0].copy()
+    try:
+        hull = ConvexHull(outline)
+    except QhullError:
+        return None, {}
+    extent = float(np.max(pdist(outline[hull.vertices])))
+    area = _outline_area(outline)
+    gap_share = float(np.linalg.norm(outline[-1])) / extent
+    area_share = area / hull.volume
+    summary = {'endpoint_gap_share': gap_share, 'signed_area_share': area_share}
+    if hull.volume / extent**2 < .06:
+        return None, summary
+    if area_share >= 1. and _repeated_macro_ring(outline, hull, extent):
+        summary['repeated_ring'] = True
+        return 2, summary
+    if gap_share > .20:
+        return None, summary
+    closed = np.vstack([outline, outline[0]])
+    # The closing chord belongs only to this visual outline.
+    graph = _shape_metrics(closed, closed, cfg)
+    main = graph['dominant_boundary_share']
+    secondary = graph['secondary_boundary_share']
+    block_areas = sorted(graph['cycle_areas_m2'], reverse=True)
+    main_area, secondary_area = ([area / hull.volume for area in block_areas] + [0., 0.])[:2]
+    largest_face = graph['largest_bounded_face_area_m2'] / hull.volume
+    summary.update(dominant_boundary_share=main, secondary_boundary_share=secondary,
+                   largest_block_area_share=main_area, second_block_area_share=secondary_area,
+                   main_largest_face_share=graph['main_largest_face_share'],
+                   largest_bounded_face_area_share=largest_face)
+    if (gap_share <= .15 and secondary_area >= .08
+            and secondary >= cfg.secondary_ring_share and secondary >= .5 * main
+            and graph['cyclic_unique_share'] >= cfg.minimum_cyclic_share):
+        return 4, summary
+    # Interior mileage can be large when two nearby passes enclose a sliver.
+    # Keep the chord guard when an interior division encloses meaningful area.
+    narrow_internal_tracks = (graph['main_largest_face_share'] >= .92
+                              and graph['near_corridor_share'] >= graph['main_internal_share'])
+    if (gap_share <= .15 and area_share >= .40 and main_area >= .40
+            and main >= .75 * cfg.dominant_ring_share
+            and secondary_area < .08
+            and (graph['main_internal_share'] < cfg.internal_structure_share or narrow_internal_tracks)
+            and graph['interior_bridge_share'] < cfg.internal_structure_share):
+        return 2, summary
+    # The exterior of a fragmented block can enclose multiple thin slivers.
+    # Check the largest individual region as well as net enclosure.
+    if area_share <= .10 and largest_face < .08:
+        return 3, summary
+    return None, summary
+
+
 def _classify_prepared(coords, xy, distances, cfg, digest=None):
+    local = _classify_local_shape(coords, xy, distances, cfg, digest)
+    metrics = local['metrics']
+    sample_counts = (129, 257)
+    # Require separation between the outline sampling scale and GPS corridor scale.
+    if (local['category'] == 2
+            or (not metrics and local.get('reason_code') != 'resource_limit')
+            or np.linalg.norm(xy[-1] - xy[0]) <= 1e-8
+            or distances[-1] < (sample_counts[-1] - 1) * cfg.ambiguous_corridor_width_m):
+        return local
+    candidates = []
+    outlines = {}
+    try:
+        for count in sample_counts:
+            category, summary = _macro_shape(xy, distances, cfg, count)
+            candidates.append(category)
+            outlines[str(count)] = summary
+    except _ShapeFailure:
+        return local
+    metrics['macro_outlines'] = outlines
+    category = candidates[0]
+    # An open route with only small local cycles can remain non-ring even
+    # when a hypothetical closing chord would enclose substantial area.
+    if (local['category'] == 1 and all(candidate is None for candidate in candidates)
+            and all(outline.get('endpoint_gap_share', 0.) > .15 for outline in outlines.values())
+            and metrics.get('dominant_boundary_share', 1.) < cfg.significant_block_share
+            and metrics['cyclic_unique_share'] < cfg.minimum_cyclic_share
+            and metrics['unresolved_crossing_share'] <= cfg.maximum_crossing_share
+            and metrics['near_corridor_share'] <= cfg.maximum_unresolved_share):
+        return _classification_result(
+            3, ['两种整体尺度下首尾均明显开放，原始轨迹只有局部小环和少量交叉。'],
+            cfg, metrics, input_hash=digest)
+    if category is None or category != candidates[1]:
+        return local
+    if category == 3 and (local['category'] != 1
+                          or metrics.get('near_corridor_share', 0.) <= cfg.maximum_unresolved_share):
+        return local
+    reasons = {
+        2: '两种整体采样尺度下均形成有明显围合面积的主导环边界。',
+        3: '两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。',
+        4: '两种整体采样尺度下均存在两个显著的闭合主体。',
+    }
+    if category == 2 and all(outline.get('repeated_ring') for outline in outlines.values()):
+        reasons[2] = '两种整体采样尺度下均沿同一个闭合主体同向绕行多圈。'
+    return _classification_result(category, [reasons[category]], cfg, metrics, input_hash=digest)
+
+
+def _classify_local_shape(coords, xy, distances, cfg, digest=None):
     metrics = {}
     try:
         admission = LoopRecognitionConfig(max_input_bytes=cfg.max_input_bytes, max_points=cfg.max_points)
@@ -1562,6 +1726,29 @@ def _classify_prepared(coords, xy, distances, cfg, digest=None):
             reasons = [*reasons, '整体形态采用有界首尾近闭合假设；未修改原始轨迹或严格环记录。']
         return _classification_result(category, reasons, cfg, metrics, input_hash=digest)
     except _ShapeFailure as exc:
+        if (exc.code == 'ambiguous_shape'
+                and metrics.get('endpoint_gap_m', 0.) > cfg.ambiguous_corridor_width_m
+                and (metrics['near_corridor_share'] > cfg.maximum_unresolved_share
+                     or metrics['visual_crossing_hypothesis'])):
+            share = _ordered_return_share(xy, distances, cfg.ambiguous_corridor_width_m)
+            metrics['ordered_return_share'] = share
+            if share >= .70:
+                return _classification_result(
+                    3, ['折返点两侧的大部分行程沿同一近邻走廊反向重合，整体为往返路线。'],
+                    cfg, metrics, input_hash=digest)
+            # A wider comparison can bridge GPS drift when the graph already
+            # shows extensive close corridors and lacks a dominant boundary.
+            wider_width = min(30., 2 * cfg.ambiguous_corridor_width_m)
+            if (cfg.ambiguous_corridor_width_m < wider_width < metrics['endpoint_gap_m']
+                    and metrics['near_corridor_share'] > cfg.maximum_unresolved_share
+                    and metrics['dominant_boundary_share'] < cfg.corridor_main_share):
+                wider_share = _ordered_return_share(xy, distances, wider_width)
+                metrics['wider_ordered_return_share'] = wider_share
+                metrics['wider_ordered_return_width_m'] = wider_width
+                if wider_share >= .70:
+                    return _classification_result(
+                        3, ['近邻走廊覆盖显著且没有主导环边界；放宽定位偏移后，两侧行程仍有序反向重合。'],
+                        cfg, metrics, input_hash=digest)
         return _classification_result(1, [str(exc)], cfg, metrics, reason_code=exc.code, input_hash=digest)
     except RecognitionError as exc:
         return _input_failure(exc, cfg, digest)

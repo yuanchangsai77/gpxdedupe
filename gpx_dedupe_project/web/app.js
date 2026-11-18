@@ -73,9 +73,8 @@ function startWorkbench() {
     renderTable();
   }
   async function selectFile(file) {
-    const scroll=$('files').scrollTop;
-    state.selected=file;state.preview=null;invalidate();renderFiles();controls();
-    $('files').scrollTop=scroll;
+    state.selected=file;state.preview=null;invalidate();controls();
+    $('files').querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed','false');
     status(`正在加载 ${file.name}…`);
     try {
       const {original}=await api('/api/preview',{file_id:file.id});
@@ -123,13 +122,27 @@ function startWorkbench() {
       const icon=document.createElement('span');icon.className='file-icon';icon.textContent=file.format || 'GPX';
       const copy=document.createElement('span');copy.className='file-copy';
       const name=document.createElement('strong');name.textContent=file.name;
+      name.title='双击复制路线名称';
+      name.addEventListener('dblclick',async event=>{
+        event.preventDefault();
+        try {
+          await navigator.clipboard.writeText(file.name);
+          status(`已复制路线名称：${file.name}`);
+        } catch {
+          status('复制路线名称失败。',true);
+        }
+      });
       copy.append(name);
       if(Number.isFinite(file.size_bytes)){
         const meta=document.createElement('small');meta.textContent=`${(file.size_bytes/1024).toFixed(1)} KB`;
         copy.append(meta);
       }
       button.append(icon,copy);
-      button.addEventListener('click',()=>selectFile(file));parent.append(button);
+      button.addEventListener('click',event=>{
+        if(event.detail>1)return;
+        selectFile(file);
+        button.setAttribute('aria-pressed','true');
+      });parent.append(button);
     }
     if (!files.length) {
       const p=document.createElement('p');p.className='list-empty';
