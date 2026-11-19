@@ -13,6 +13,8 @@ import math
 import mimetypes
 import os
 import socket
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 import tempfile
 import threading
@@ -31,6 +33,8 @@ MAX_FILES = 2000
 DOWNLOAD_NAMES = {"gpx": "cleaned.gpx", "geojson": "cleaned.geojson", "report": "report.json", "manifest": "manifest.json"}
 MAX_ANALYSES = 8
 ANALYSIS_TTL_SECONDS = 30 * 60
+ROUTE_LABELS = {f"{group}-{number}" for group, size in enumerate((1, 4, 3, 3), 1)
+                for number in range(1, size + 1)} - {"3-2"} | {"3-4", "3-5"}
 
 
 class APIError(Exception):
@@ -69,6 +73,17 @@ class FileRecord:
     @property
     def snapshot_name(self):
         return self.path.name if self.export is None else f"route-{self.entry['source_index']}.gpx"
+
+    @property
+    def label_key(self):
+        identity = [os.path.normcase(str(self.path))]
+        if self.export is not None:
+            top_id = self.entry["topRouteId"]
+            if top_id and "duplicate_topRouteId" not in self.entry["warnings"]:
+                identity.append(top_id)
+            else:
+                identity.extend((self.export.source_sha256, self.entry["source_index"]))
+        return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -119,7 +134,8 @@ class LocalServer(ThreadingHTTPServer):
             records[file_id] = record
             item = {"id": file_id, "name": name, "relative_path": relative, "size_bytes": size}
             if not legacy:
-                item.update(source=str(source), format="JSON" if record.export else "GPX")
+                item.update(source=str(source), format="JSON" if record.export else "GPX",
+                            label_key=record.label_key)
             files.append(item)
 
         for raw in paths:
@@ -244,6 +260,73 @@ class LocalServer(ThreadingHTTPServer):
         if has_link(self.output_dir):
             raise APIError(403, "输出目录不允许使用符号链接或目录联接")
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def open_label_store(self):
+        self.prepare_output()
+        path = self.output_dir / "route-labels.sqlite3"
+        if has_link(path):
+            raise APIError(403, "标签库不允许使用符号链接或目录联接")
+        db = sqlite3.connect(path)
+        db.row_factory = sqlite3.Row
+        return db
+
+    @staticmethod
+    def ensure_label_table(db):
+        db.execute("""CREATE TABLE IF NOT EXISTS route_labels (
+            key TEXT PRIMARY KEY, name TEXT NOT NULL, source TEXT NOT NULL, code TEXT NOT NULL
+        )""")
+        if db.execute("PRAGMA user_version").fetchone()[0] < 2:
+            db.execute("BEGIN IMMEDIATE")
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version == 0:
+                db.execute("""UPDATE route_labels SET code = 'legacy-' || code
+                              WHERE code IN ('2-2', '2-3', '2-4', '2-5', '2-6')""")
+            if version < 2:
+                db.execute("""UPDATE route_labels SET code = CASE code
+                                  WHEN '4-2' THEN 'legacy-4-2'
+                                  WHEN '4-3' THEN 'legacy-4-3'
+                                  WHEN '4-4' THEN '4-2'
+                                  WHEN '4-5' THEN '4-3'
+                              END
+                              WHERE code IN ('4-2', '4-3', '4-4', '4-5')""")
+                db.execute("PRAGMA user_version = 2")
+
+    def list_labels(self):
+        with closing(self.open_label_store()) as db, db:
+            self.ensure_label_table(db)
+            return {"labels": [dict(row) for row in db.execute(
+                "SELECT * FROM route_labels ORDER BY code, name, key")]}
+
+    def save_label(self, body):
+        code = body.get("code")
+        if "code" not in body or (code is not None and (not isinstance(code, str) or code not in ROUTE_LABELS)):
+            raise APIError(400, "请选择有效的路线标签")
+        record = self.source_record(body["file_id"]) if "file_id" in body else None
+        key = record.label_key if record else body.get("key")
+        if not isinstance(key, str) or len(key) != 64:
+            raise APIError(400, "请选择要标注的路线")
+        with closing(self.open_label_store()) as db, db:
+            self.ensure_label_table(db)
+            if code is None:
+                deleted = db.execute("DELETE FROM route_labels WHERE key = ?", (key,))
+                if record is None and not deleted.rowcount:
+                    raise APIError(404, "该路线标签已不存在")
+                return {"key": key, "label": None}
+            if record is None:
+                updated = db.execute("UPDATE route_labels SET code = ? WHERE key = ?", (code, key))
+                if not updated.rowcount:
+                    raise APIError(404, "该路线标签已不存在")
+            else:
+                name = record.path.name
+                if record.export is not None:
+                    name = record.entry["topRouteId"] or f"路线 {record.entry['source_index']}"
+                    if "duplicate_topRouteId" in record.entry["warnings"]:
+                        name = f"路线 {record.entry['source_index']} · {name}"
+                db.execute("""INSERT INTO route_labels (key, name, source, code) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET name=excluded.name, source=excluded.source, code=excluded.code""",
+                           (key, name, str(record.path), code))
+            return {"key": key, "label": dict(db.execute(
+                "SELECT * FROM route_labels WHERE key = ?", (key,)).fetchone())}
 
     def register_downloads(self, run_id, out, names):
         urls = {kind: f"/api/download/{run_id}/{kind}" for kind in names}
@@ -501,6 +584,8 @@ class Handler(BaseHTTPRequestHandler):
         return path
 
     def get(self, path):
+        if path == "/api/route-labels":
+            return self.send_json(200, self.server.list_labels())
         if path == "/api/config":
             return self.send_json(200, {"sample_dir": str((PROJECT_DIR / "examples").resolve()),
                                         "default_dir": DEFAULT_DIR, "version": "0.1"})
@@ -542,6 +627,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = self.server.analyze_file(body)
                 elif path == "/api/classify":
                     result = self.server.classify_file(body)
+                elif path == "/api/route-labels":
+                    result = self.server.save_label(body)
                 elif path == "/api/apply":
                     result = self.server.apply_file(body)
                 else:

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import shutil
 import socket
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -480,6 +481,53 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(result["category"], 2)
         self.assertEqual(self.request(path=result["downloads"]["report"])[2],
                          web_app.loop_recognition.classify_export_record(route))
+
+    def test_route_label_crud_and_identity_after_rescan(self):
+        source = self.folder / "路线.GPX"
+        original = source.read_bytes()
+        scan = {"paths": [str(source)]}
+        endpoint = "/api/route-labels"
+        entry = self.request("POST", "/api/files", scan)[2]["files"][0]
+        self.assert_error(self.request("POST", endpoint, {"file_id": entry["id"], "code": "4-6"}), 400)
+        self.assert_error(self.request("POST", endpoint, {"file_id": entry["id"], "code": "3-2"}), 400)
+        status, _, saved = self.request("POST", endpoint, {"file_id": entry["id"], "code": "3-4"})
+        self.assertEqual(status, 200, saved)
+        key = entry["label_key"]
+        self.assertEqual(saved["label"]["key"], key)
+        rescanned = self.request("POST", "/api/files", scan)[2]["files"][0]
+        self.assertNotEqual(rescanned["id"], entry["id"])
+        self.assertEqual(rescanned["label_key"], key)
+        with web_app.create_server(port=0, output_dir=self.output) as reopened:
+            self.assertIn(saved["label"], reopened.list_labels()["labels"])
+        status, _, updated = self.request("POST", endpoint, {"key": key, "code": "3-5"})
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["label"]["code"], "3-5")
+        self.assertEqual(self.request("POST", endpoint, {"key": key, "code": None})[2],
+                         {"key": key, "label": None})
+        self.assertNotIn(key, {label["key"] for label in self.request(path=endpoint)[2]["labels"]})
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_old_labels_preserve_or_merge_their_meaning_after_upgrade(self):
+        output = self.folder / "label-output"
+        output.mkdir()
+        migrations = {"2-2": "legacy-2-2", "4-1": "4-1", "4-2": "legacy-4-2",
+                      "4-3": "legacy-4-3", "4-4": "4-2", "4-5": "4-3"}
+        keys = {code: str(index) * 64 for index, code in enumerate(migrations)}
+        db = sqlite3.connect(output / "route-labels.sqlite3")
+        try:
+            db.execute("CREATE TABLE route_labels (key TEXT PRIMARY KEY, name TEXT, source TEXT, code TEXT)")
+            db.executemany("INSERT INTO route_labels VALUES (?, ?, ?, ?)",
+                           ((key, code, "source", code) for code, key in keys.items()))
+            db.commit()
+        finally:
+            db.close()
+        with web_app.create_server(port=0, output_dir=output) as server:
+            self.assertEqual({item["name"]: item["code"] for item in server.list_labels()["labels"]},
+                             migrations)
+            server.save_label({"key": keys["4-2"], "code": "2-4"})
+            migrations["4-2"] = "2-4"
+            self.assertEqual({item["name"]: item["code"] for item in server.list_labels()["labels"]},
+                             migrations)
 
     def test_source_read_honors_smaller_limit_when_file_grows_after_stat(self):
         entry = self.files()[2]['files'][0]

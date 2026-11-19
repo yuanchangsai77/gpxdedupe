@@ -5,12 +5,40 @@
 <header class="site-header"><a class="brand" href="/"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 28V13l10-6 12 8-11 9-1-17M7 28l11-4 11 5V15"/></svg><span>GPX <strong>路线</strong></span></a><nav aria-label="主导航"><a href="/">轨迹对比</a><a href="/about" aria-current="page">项目说明</a></nav><div class="header-right"><span class="local-tag">几何处理原型 V0.1</span><button id="theme-toggle" class="quiet" type="button" aria-label="切换深色模式">深色</button></div></header>
 <main class="about-main guide-main">
 <section class="guide-intro"><h1>一条轨迹，<br>不止一种路线结构。</h1><p>先分清路线的拓扑，再决定要保留什么。这里说明常见结构怎样识别、哪里容易出错、识别之后有哪些处理选择，以及 GPX 路线目前真正做到了哪一步。</p><a class="button" href="/">打开轨迹对比</a></section>
-<nav class="guide-nav" aria-label="说明目录"><a href="#concepts">理解拓扑</a><a href="#support">结构总览</a><a href="#cases">逐类前后对比</a><a href="#technical">识别规则</a><a href="#rates">成功率与证据</a><a href="#decisions">选择处理目标</a><a href="#limits">限制与规划</a></nav>
+<nav class="guide-nav" aria-label="说明目录"><a href="#labels">人工标注</a><a href="#concepts">理解拓扑</a><a href="#support">结构总览</a><a href="#cases">逐类前后对比</a><a href="#technical">识别规则</a><a href="#rates">成功率与证据</a><a href="#decisions">选择处理目标</a><a href="#limits">限制与规划</a></nav>
 <div class="notice"><strong>默认：路线类型识别</strong><span>选择 GPX 或 TopRoute JSON 中的一条轨迹，点击「识别路线类型」。整条路线分为 1 无法判断、2 环、3 非环、4 非标准环。页面显示判定理由，可下载 JSON 报告。分类不会修改原轨迹。</span></div>
 <ul><li><strong>1 无法判断</strong>：输入不受支持，或几何证据不足以可靠分类。</li><li><strong>2 环</strong>：整条路线有一个主导闭合环，可带短接入段或局部折返。</li><li><strong>3 非环</strong>：整体以开放、往返或走廊形态为主，可含局部小环。</li><li><strong>4 非标准环</strong>：有明显闭合结构，并包含显著次环、内部连接或分支。</li></ul>
 <div class="notice"><strong>可选：旧版 P0 转换</strong><span>切换“候选转换（旧版 P0）”才会分析首尾尾巴裁剪或同向重复整圈候选，显式选择目标并确认风险后导出；主体环须额外同意删除两侧接入行程。源文件与计划版本会复核，安全检查阻止的候选不能执行。下文结构矩阵、处理示意、技术步骤与 352 样本表均为 legacy 转换算法的历史说明，不是路线类型识别的支持矩阵或成功率。道路图重构、真实道路身份判定与地图匹配仍未实现；真实路线成功概率尚未建立。</span></div>
 
-<section class="about-section" id="concepts"><h2>拓扑描述“怎样连接”，轨迹还记录“怎样走过”</h2><p>将路口、起终点、折返点看成节点，将节点之间的道路看成边；轨迹则是按时间顺序经过这些边的记录。同一条边可能走一次、多次，方向也可能相反。</p><div class="explanation-columns"><article class="text-panel"><h3>三个不同的问题</h3><ul><li><strong>几何重合：</strong>两个位置足够接近，可能来自同一道路，也可能是平行路或上下层。</li><li><strong>拓扑相连：</strong>道路真的能在该位置转向连接。画面上的交叉不一定是路口。</li><li><strong>通过次数：</strong>同一条边按什么顺序、什么方向走了几次。这决定哪些行程重复。</li></ul></article><article class="text-panel"><h3>分类可以叠加，不是互斥菜单</h3><p>一条路线可能是“长尾巴＋8 字双环＋内部支路”，也可能“先走两圈，再多走半圈”。下面列的是常见构件与组合，不是穷尽所有数学图结构。</p><p>当前程序不建立完整道路图，不会输出“这是 8 字、含 3 个分叉”之类的道路结构标签。默认模式只读识别整条路线的类型；旧版转换模式仍只尝试两个几何变换。<code>unchanged</code> 不是“已证明没有重复”。</p></article></div></section>
+<section class="about-section" id="labels">
+<h2>人工路线标注</h2>
+<p>在轨迹对比页选中路线，点击右侧工具栏中的类型即可保存。每条路线保留一个人工标签，点击其他类型可直接替换。「管理标签」可按路线名、来源或类型筛选，并支持改标和取消标注。</p>
+<p>人工标注有 4 个大类和 12 个二级类型，编号独立于自动识别结果。按整体结构选标签，忽略局部小变化。图标是轨迹示意，判断拓扑时还要看路线的经过顺序和连接关系。</p>
+<div class="capability-table"><table>
+<caption class="sr-only">人工路线标签及适用条件</caption>
+<thead><tr><th scope="col">大类</th><th scope="col">标签</th><th scope="col">适用条件</th></tr></thead>
+<tbody>
+<tr><th scope="rowgroup">1 识别失败</th><td>1-1 无效轨迹</td><td>缺失、断裂、严重漂移或无法判定。</td></tr>
+</tbody><tbody>
+<tr><th scope="rowgroup" rowspan="4">2 非环路线</th><td>2-1 简单延伸线</td><td>整体单方向延伸，可直、弯、波浪或偶尔短距离回头。</td></tr>
+<tr><td>2-2 严格往返线</td><td>整体沿同一线路去返。</td></tr>
+<tr><td>2-3 近似往返线</td><td>整体去返关系明确，可有局部绕路、小环或平行偏离。</td></tr>
+<tr><td>2-4 复杂游走线</td><td>频繁回头、交叉或缠绕，且没有明确去返主轴。没有显著环的纯分叉或树形路线也归此类。</td></tr>
+</tbody><tbody>
+<tr><th scope="rowgroup" rowspan="4">3 环形路线</th><td>3-1 单环型</td><td>整体由一个主要环状轮廓构成，允许首尾不完全重合、局部轻微折返或绕行，以及不规则形状。</td></tr>
+<tr><td>3-3 重复绕环型</td><td>同一环重复经过，包含多圈、部分圈和正反圈。</td></tr>
+<tr><td>3-4 长尾 Q</td><td>单个主环带明显的长接入尾段。</td></tr>
+<tr><td>3-5 短尾 Q</td><td>单个主环带较短的接入尾段。</td></tr>
+</tbody><tbody>
+<tr><th scope="rowgroup" rowspan="3">4 复合结构路线</th><td>4-1 多环组合型</td><td>两个及以上明显的环，可串联、相接或共享部分路线。</td></tr>
+<tr><td>4-2 环内穿插型</td><td>有明显主环，环内有穿越、折返、分叉或复杂游走。</td></tr>
+<tr><td>4-3 混合复杂型</td><td>环、开放线、分叉或缠绕形成明显复合结构，且不符合多环组合或环内穿插。</td></tr>
+</tbody></table></div>
+<p><strong>单环型怎么判断</strong>。如果整条路线仍呈现一个明显的主环，即使起终点之间有缺口，中间有短折返或小幅绕行，也可以标为 <strong>3-1 单环型</strong>。圆、椭圆和不规则轮廓都适用。</p>
+<p>标签保存在服务输出目录下的 <code>route-labels.sqlite3</code>，默认目录为 <code>gpx_dedupe_project/outputs/</code>。刷新网页或重启服务后仍可读取。旧标签需要重新判断时，会在管理页显示为「待复核」。</p>
+</section>
+
+<section class="about-section" id="concepts"><h2>拓扑描述“怎样连接”，轨迹还记录“怎样走过”</h2><p>将路口、起终点、折返点看成节点，将节点之间的道路看成边。轨迹则是按时间顺序经过这些边的记录。同一条边可能走一次、多次，方向也可能相反。</p><div class="explanation-columns"><article class="text-panel"><h3>三个不同的问题</h3><ul><li><strong>几何重合</strong>。两个位置足够接近，可能来自同一道路，也可能是平行路或上下层。</li><li><strong>拓扑相连</strong>。判断道路能否在相交位置转向连接，需要道路信息。</li><li><strong>通过次数</strong>。同一条边按什么顺序、什么方向走了几次，会影响可以保留或压缩的行程。</li></ul></article><article class="text-panel"><h3>一条路线可以包含多种结构</h3><p>一条路线可能同时含有长尾、双环和内部支路，也可能先走两圈再多走半圈。人工标注以整体主导结构为准，后面的历史示意按构件说明旧版转换规则。</p></article></div></section>
 
 <section class="about-section" id="support"><h2>历史参考：legacy 转换结构矩阵</h2><p>以下矩阵只描述旧版转换规则，不描述默认路线类型识别的覆盖范围。“相对难度”是在采样足够、定位误差较小、没有近邻歧义时的工程判断，不是测出来的概率。未实现的道路图变换即使概念清楚，也不能算软件支持。</p>
 <div class="capability-table"><table><caption class="sr-only">十二类常见轨迹结构及当前支持范围</caption><thead><tr><th scope="col">结构 / 示例</th><th scope="col">相对难度与关键条件</th><th scope="col">当前实现</th><th scope="col">处理选择与详情</th></tr></thead><tbody>

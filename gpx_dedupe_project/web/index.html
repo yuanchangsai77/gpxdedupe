@@ -42,5 +42,21 @@
 <details class="data-section"><summary>坐标数据与详细报告</summary><div class="data-tabs"><button id="table-original" type="button" aria-pressed="true">原始坐标</button><button id="table-clean" type="button" aria-pressed="false">候选预览坐标</button></div><p id="table-note" class="muted">候选预览尚未导出。与图中轨迹一一对应；悬停或键盘聚焦地图可读取最近轨迹点。</p><div class="table-scroll"><table><thead><tr><th>点序号</th><th>经度</th><th>纬度</th></tr></thead><tbody id="coordinates"></tbody></table></div><details><summary>JSON 报告</summary><pre id="report"></pre></details></details>
 </section>
 </section>
+<aside class="label-panel" aria-labelledby="label-heading">
+  <div class="label-heading"><h2 id="label-heading">路线标注</h2><button id="manage-labels" class="quiet" type="button">管理标签 <span id="label-count"></span></button></div>
+  <p id="label-selection" class="muted">请先选择路线。</p>
+  <p class="muted fine">按整体结构标注，忽略局部小变化。</p>
+  <div id="label-tools"></div>
+  <div class="label-actions"><button id="clear-label" class="quiet" type="button" disabled>取消标注</button><p id="label-status" role="status"></p></div>
+</aside>
 </main><footer class="site-footer">GPX 路线 <span>几何转换原型，不替代道路导航。</span><a href="/about">算法与技术路线</a></footer>
+<dialog id="label-manager" aria-labelledby="label-manager-title">
+  <div class="label-heading"><h2 id="label-manager-title">已标注路线</h2><form method="dialog"><button class="quiet">关闭</button></form></div>
+  <div class="label-filters">
+    <label>搜索路线<input id="label-search" type="search" placeholder="路线名或来源"></label>
+    <label>按标签筛选<select id="label-filter"><option value="">全部标签</option></select></label>
+  </div>
+  <p id="label-manager-status" role="status"></p>
+  <div id="label-records"></div>
+</dialog>
 </body></html>

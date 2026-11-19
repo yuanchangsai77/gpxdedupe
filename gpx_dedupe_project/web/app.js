@@ -9,6 +9,186 @@ if ($('folder-form')) startWorkbench();
 function startWorkbench() {
   const state = {config:null, files:[], expanded:new Map(), preview:null, selected:null, result:null, analysis:null, applied:false, busy:false, scanning:false, workMode:'classification', mode:'split', zoom:1, panX:0, panY:0, bounds:null, table:'original', version:0, operation:null};
   const classifying=()=>state.workMode==='classification';
+  const labelGroups = [
+    ['识别失败', [
+      ['1-1','无效轨迹','缺失、断裂、严重漂移或无法判定','M2 17 7 12 9 14 M13 9 16 6 18 12 M20 8 22 4'],
+    ]],
+    ['非环路线', [
+      ['2-1','简单延伸线','整体单方向延伸，可直、弯、波浪或偶尔短距离回头','M3 19 Q8 10 14 10 Q19 10 21 4'],
+      ['2-2','严格往返线','整体沿原路线去，再沿同一线路返回','M3 19 21 5 M16 5 H21 V10 M3 14 V19 H8'],
+      ['2-3','近似往返线','整体去返关系明显，可有局部绕路、小环或平行偏离','M3 17 16 5 Q22 1 21 8 L16 13 Q13 19 10 15 L5 21 M5 17 V21 H9'],
+      ['2-4','复杂游走线','没有清晰去返主轴或显著环的复杂游走，包括纯分叉和树形路线','M2 19 15 4 21 18 5 7 10 21 22 10'],
+    ]],
+    ['环形路线', [
+      ['3-1','单环型','整体由一个主要环状轮廓构成，允许首尾不完全重合、轻微折返或绕行','M16 4 A9 9 0 1 1 11 3'],
+      ['3-3','重复绕环型','同一环绕多圈、部分圈或正反圈','M17 19 A9 9 0 1 1 20 15 M15 16 A5.5 5.5 0 1 1 17 12 L19 10'],
+      ['3-4','长尾 Q','闭环外有明显的长接入尾段','M22 22 12 12 A6.36 6.36 0 1 0 3 3 A6.36 6.36 0 0 0 12 12'],
+      ['3-5','短尾 Q','闭环外只有较短的接入尾段','M21 21 17 17 A8.49 8.49 0 1 0 5 5 A8.49 8.49 0 0 0 17 17'],
+    ]],
+    ['复合结构路线', [
+      ['4-1','多环组合型','两个及以上明显的环，可串联、相接或共享部分路线','M12 12 C3 -2 -3 19 5 19 C12 19 12 5 19 5 C27 5 21 26 12 12 Z'],
+      ['4-2','环内穿插型','有明显主环，环内有穿越、折返、分叉或复杂游走','M12 3 A9 9 0 1 1 12 21 A9 9 0 1 1 12 3 Z M5 6 19 18 M12 12 16 8'],
+      ['4-3','混合复杂型','环、开放线、分叉或缠绕交织，且不符合多环组合或环内穿插','M3 5 H19 L22 16 11 22 3 16 Z M3 5 22 16 M19 5 3 16 M3 11 H20 M11 5 V22'],
+    ]],
+  ];
+  const labelNames = new Map(labelGroups.flatMap(([, items]) => items.map(([code, name]) => [code, name])));
+  const legacyLabels = new Map([
+    ['legacy-2-2', '连续曲折线'],
+    ['legacy-2-3', '往返重合线'],
+    ['legacy-2-4', '折线扫描型'],
+    ['legacy-2-5', '交叉游走型'],
+    ['legacy-2-6', '局部缠绕型'],
+    ['3-2', '带尾闭环型'],
+    ['legacy-4-2', '分叉探索型'],
+    ['legacy-4-3', '主线附环型'],
+  ]);
+  for (const [code, name] of legacyLabels) labelNames.set(code, `${name}（待复核）`);
+  const labels = new Map();
+  const labelButtons = new Map();
+  let labelsReady = false;
+  let labelsLoading = false;
+  let labelPending = false;
+
+  function renderLabelSelection() {
+    const current = labels.get(state.selected?.label_key);
+    $('label-selection').textContent = state.selected
+      ? (current ? `已标注 ${current.code} · ${labelNames.get(current.code)}` : '当前路线未标注。')
+      : '请先选择路线。';
+    for (const [code, button] of labelButtons) {
+      button.disabled = !labelsReady || !state.selected?.label_key || labelPending || state.scanning;
+      button.setAttribute('aria-pressed', String(current?.code === code));
+    }
+    $('clear-label').disabled = !current || labelPending || state.scanning;
+    $('label-count').textContent = labelsReady ? String(labels.size) : '';
+  }
+
+  function labelOptions(select) {
+    for (const [group, items] of labelGroups) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = group;
+      for (const [code, name] of items) optgroup.append(new Option(`${code} ${name}`, code));
+      select.append(optgroup);
+    }
+  }
+
+  function renderLabelRecords() {
+    const query = $('label-search').value.trim().toLocaleLowerCase();
+    const code = $('label-filter').value;
+    const records = [...labels.values()]
+      .filter(label => (!code || label.code === code) && `${label.name} ${label.source}`.toLocaleLowerCase().includes(query))
+      .sort((a, b) => a.code.localeCompare(b.code) || a.name.localeCompare(b.name, 'zh-CN'));
+    const host = $('label-records');
+    host.replaceChildren();
+    const count = document.createElement('p');
+    count.className = 'muted';
+    count.textContent = labelsReady ? `显示 ${records.length} / ${labels.size} 条` : '标签库尚未载入。';
+    host.append(count);
+    for (const label of records) {
+      const row = document.createElement('div');
+      row.className = 'label-record';
+      const info = document.createElement('div');
+      const name = document.createElement('strong');
+      const source = document.createElement('small');
+      name.textContent = label.name;
+      source.textContent = label.source;
+      info.append(name, source);
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', `修改 ${label.name} 的标签`);
+      labelOptions(select);
+      if (legacyLabels.has(label.code)) {
+        const legacy = new Option(labelNames.get(label.code), label.code);
+        legacy.disabled = true;
+        select.prepend(legacy);
+      }
+      select.value = label.code;
+      select.disabled = labelPending;
+      select.addEventListener('change', () => saveLabel({key:label.key, code:select.value}, true));
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'quiet';
+      clear.textContent = '取消标注';
+      clear.disabled = labelPending;
+      clear.setAttribute('aria-label', `取消 ${label.name} 的标注`);
+      clear.addEventListener('click', () => saveLabel({key:label.key, code:null}, true));
+      row.append(info, select, clear);
+      host.append(row);
+    }
+  }
+
+  async function loadLabels() {
+    if (labelsLoading) return;
+    labelsLoading = true;
+    try {
+      const data = await api('/api/route-labels');
+      labels.clear();
+      for (const label of data.labels) labels.set(label.key, label);
+      labelsReady = true;
+      $('label-status').textContent = '';
+      $('label-manager-status').textContent = '';
+    } catch (error) {
+      $('label-status').textContent = error.message;
+      $('label-manager-status').textContent = error.message;
+    } finally {
+      labelsLoading = false;
+    }
+    renderLabelSelection();
+    renderLabelRecords();
+  }
+
+  async function saveLabel(body, manager = false) {
+    if (labelPending || !labelsReady) return;
+    const feedback = $(manager ? 'label-manager-status' : 'label-status');
+    labelPending = true;
+    renderLabelSelection();
+    if (manager) renderLabelRecords();
+    try {
+      const {key, label} = await api('/api/route-labels', body);
+      if (label) labels.set(key, label);
+      else labels.delete(key);
+      feedback.textContent = label ? `已保存 ${label.name} 的标注。` : '已取消标注。';
+    } catch (error) {
+      feedback.textContent = error.message;
+    } finally {
+      labelPending = false;
+      renderLabelSelection();
+      renderLabelRecords();
+    }
+  }
+
+  for (const [group, items] of labelGroups) {
+    const section = document.createElement('section');
+    const heading = document.createElement('h3');
+    heading.textContent = group;
+    section.append(heading);
+    for (const [code, name, description, path] of items) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'label-tool';
+      button.title = description;
+      button.append(svgNode('svg', {viewBox:'0 0 24 24', 'aria-hidden':'true'}));
+      button.firstChild.append(svgNode('path', {d:path}));
+      const text = document.createElement('span');
+      text.textContent = `${code} ${name}`;
+      button.append(text);
+      button.addEventListener('click', () => saveLabel({file_id:state.selected.id, code}));
+      labelButtons.set(code, button);
+      section.append(button);
+    }
+    $('label-tools').append(section);
+  }
+  labelOptions($('label-filter'));
+  const legacyFilter = document.createElement('optgroup');
+  legacyFilter.label = '旧标签';
+  for (const code of legacyLabels.keys()) legacyFilter.append(new Option(labelNames.get(code), code));
+  $('label-filter').append(legacyFilter);
+  $('clear-label').addEventListener('click', () => saveLabel({file_id:state.selected.id, code:null}));
+  $('manage-labels').addEventListener('click', () => {
+    renderLabelRecords();
+    $('label-manager').showModal();
+    if (!labelsReady && !labelPending) loadLabels();
+  });
+  $('label-search').addEventListener('input', renderLabelRecords);
+  $('label-filter').addEventListener('change', renderLabelRecords);
   function modeSettings() {
     const classification=classifying();$('work-mode').value=state.workMode;
     $('radius').value='18';$('radius-options').hidden=classification;
@@ -38,6 +218,7 @@ function startWorkbench() {
     $('apply').textContent=state.operation==='apply' ? '正在确认转换…' : '确认转换并导出';
     document.body.classList.toggle('busy',locked);
     document.querySelector('.comparison-area').setAttribute('aria-busy',String(locked));
+    renderLabelSelection();
   }
   const downloadKeys=[['download-gpx','gpx'],['download-geojson','geojson'],['download-report','report'],['download-manifest','manifest']];
   function clearDownloads() { for(const [id] of downloadKeys) { $(id).hidden=true;$(id).removeAttribute('href'); } }
@@ -70,6 +251,7 @@ function startWorkbench() {
     renderTable();
   }
   async function selectFile(file) {
+    $('label-status').textContent = '';
     state.selected=file;state.preview=null;invalidate();controls();
     $('files').querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed','false');
     status(`正在加载 ${file.name}…`);
@@ -342,5 +524,6 @@ function startWorkbench() {
   // Legacy clients can explicitly opt into the unchanged P0 workflow.
   if(new URLSearchParams(location.search).get('mode')==='transform')state.workMode='transform';
   modeSettings();invalidate();controls();
+  loadLabels();
   (async()=>{try{state.config=await api('/api/config');$('folder').value=state.config.default_dir;await scan(state.config.default_dir);}catch(error){status(error.message,true);}})();
 }

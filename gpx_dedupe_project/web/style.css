@@ -3,3 +3,19 @@ select{font:inherit;max-width:100%;border:1px solid var(--border);background:var
 #work-mode{width:100%;margin-bottom:8px}#mode-note{font-size:12px;margin:0 0 16px;line-height:1.5}
 
 .route-folder>summary{padding:6px 8px;overflow-wrap:anywhere}.route-folder>div{margin-left:12px;border-left:1px solid var(--border);padding-left:4px}
+.label-panel{align-self:start;min-width:0;padding:16px;background:var(--plot);border:1px solid var(--border);border-radius:8px}
+.label-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.label-heading h2{margin:0;font-size:17px}.label-heading .quiet{white-space:nowrap}
+#label-selection{font-size:13px;margin:10px 0;overflow-wrap:anywhere}
+#label-tools{display:grid;gap:12px}#label-tools h3{margin:0 0 3px;font-size:12px;color:var(--muted)}
+.label-tool{display:flex;width:100%;align-items:center;gap:8px;padding:3px 6px;min-height:31px;border:1px solid transparent;border-radius:5px;text-align:left;font-size:13px;color:var(--ink)}
+.label-tool:not(:disabled):hover{background:var(--wash)}.label-tool[aria-pressed="true"]{border-color:var(--accent);background:var(--wash);font-weight:700}
+.label-tool svg{width:23px;height:23px;flex:none;fill:none;stroke:var(--accent);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.label-actions{margin-top:12px}#label-status,#label-manager-status{font-size:13px;margin:6px 0;overflow-wrap:anywhere}#label-status:empty,#label-manager-status:empty{display:none}
+#label-manager{width:min(720px,calc(100% - 32px));max-height:85vh;padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--plot);color:var(--ink)}
+#label-manager::backdrop{background:#0007}.label-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}.label-filters input,.label-filters select{width:100%;margin-top:4px}
+.label-record{display:grid;grid-template-columns:minmax(0,1fr) minmax(125px,180px) auto;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)}
+.label-record strong,.label-record small{display:block;overflow-wrap:anywhere}.label-record small{color:var(--muted)}
+@media(min-width:1120px){.workspace{grid-template-columns:minmax(240px,300px) minmax(0,1fr) 220px;gap:20px}.label-panel{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}}
+@media(min-width:761px) and (max-width:1119px){.label-panel{grid-column:2}#label-tools{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){#label-tools{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.label-record{grid-template-columns:minmax(0,1fr) auto}.label-record>div{grid-column:1/-1}.label-filters{grid-template-columns:1fr}}
