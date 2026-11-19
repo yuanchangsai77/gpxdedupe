@@ -57,6 +57,13 @@ class RouteShapeTests(unittest.TestCase):
         points = np.vstack([stem[:-1], square(100), stem[-2::-1]])
         self.assertEqual(self.classify(points)['category'], 3)
 
+    def test_long_retraced_stem_keeps_a_substantial_ring(self):
+        stem = np.asarray([[-1000, -800], [-400, -800]], dtype=float)
+        points = np.vstack([stem, square(), stem[::-1]])
+        result = self.classify(points)
+        self.assertEqual(result['category'], 2)
+        self.assertLess(result['metrics']['dominant_boundary_share'], .60)
+
     def test_open_and_straight_or_curved_pure_outbacks(self):
         outward = np.asarray([[0, 0], [300, 100], [700, 450]], dtype=float)
         for points in (outward, np.vstack([outward, outward[-2::-1]]),
@@ -93,6 +100,13 @@ class RouteShapeTests(unittest.TestCase):
         result = self.classify(points)
         self.assertEqual(result['category'], 4)
         self.assertGreater(result['metrics']['main_internal_share'], .12)
+
+    def test_short_chord_that_partitions_the_ring_is_nonstandard(self):
+        points = np.asarray([[500, 0], [1000, 0], [1000, 200], [500, 200],
+                             [0, 200], [0, 0], [500, 0], [500, 200]], dtype=float)
+        result = self.classify(points)
+        self.assertEqual(result['category'], 4)
+        self.assertLess(result['metrics']['main_internal_share'], .12)
 
     def test_geometry_transform_direction_and_sampling_invariance(self):
         original = square()

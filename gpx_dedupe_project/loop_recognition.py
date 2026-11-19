@@ -1365,6 +1365,8 @@ def _shape_metrics(coords, xy, cfg):
     significant = [block for block in blocks if block['boundary_m'] >= max(cfg.min_resolved_length_m, cfg.significant_block_share * total)]
     secondary = max((block['boundary_m'] for block in blocks[1:]), default=0.)
     interior_bridges = _interior_bridge_length(main, cyclic_edges, vertices, pairs, weights, cfg, work)
+    repeated_bridges = sum(weight for edge, (weight, count) in enumerate(zip(weights, counts))
+                           if count > 1 and edge not in cyclic_edges)
     return {'unique_length_m': total, 'travel_length_m': float(np.sum(weights * counts)),
             'cyclic_unique_share': cyclic / total,
             'cyclic_travel_share': float(sum(weights[e] * counts[e] for e in cyclic_edges) / max(np.sum(weights * counts), 1e-9)),
@@ -1373,6 +1375,7 @@ def _shape_metrics(coords, xy, cfg):
             'main_internal_share': main['internal_share'] if main else 0.,
             'main_largest_face_share': min(1., main['largest_face_area_m2'] / main['area_m2']) if main else 0.,
             'interior_bridge_share': interior_bridges / total,
+            'repeated_exterior_bridge_share': float(max(0., repeated_bridges - interior_bridges) / total),
             'main_cycle_rank': main['cycle_rank'] if main else 0,
             'main_span_share': ring_span / scale,
             'significant_ring_blocks': len(significant),
@@ -1393,15 +1396,23 @@ def _shape_metrics(coords, xy, cfg):
 def _decide_route_shape(metrics, cfg):
     if metrics['near_corridor_share'] > cfg.maximum_unresolved_share:
         raise _ShapeFailure('ambiguous_shape', '未分辨的近邻走廊涉及显著行程，不能可靠解释整体形态。')
+    internal_division = (metrics['main_internal_share'] >= .5 * cfg.internal_structure_share
+                         and metrics['main_largest_face_share'] <= .95)
     complex_evidence = (metrics['secondary_boundary_share'] >= cfg.secondary_ring_share
                         or metrics['main_internal_share'] >= cfg.internal_structure_share
-                        or metrics['interior_bridge_share'] >= cfg.internal_structure_share)
+                        or metrics['interior_bridge_share'] >= cfg.internal_structure_share
+                        or internal_division)
     if metrics['visual_crossing_hypothesis']:
         # A geometric split is a visual hypothesis, not a verified junction.
         # It may support an explicitly nonstandard drawing, never certify O/Q.
         if (complex_evidence and metrics['significant_ring_blocks'] >= 2
                 and metrics['cyclic_unique_share'] >= cfg.minimum_cyclic_share):
             return 4, ['宏观双叶或多环自交构成非标准环形；交叉仅为视觉假设，未验证道路连通。']
+        if (metrics['cyclic_unique_share'] < cfg.minimum_cyclic_share
+                and metrics['dominant_boundary_share'] < .5 * cfg.corridor_main_share
+                and metrics['repeated_exterior_bridge_share'] > .50
+                and metrics['unresolved_crossing_share'] <= cfg.maximum_crossing_share):
+            return 3, ['整体以反复经过的外部走廊为主，局部交叉和小环未形成主导闭合主体。']
         if not metrics['independent_ring_evidence']:
             raise _ShapeFailure('ambiguous_shape', '闭合主体依赖未观测交叉推导，不能据此认证为O/Q环。')
         if metrics['unresolved_crossing_share'] > cfg.maximum_crossing_share:
@@ -1410,11 +1421,13 @@ def _decide_route_shape(metrics, cfg):
         return 3, ['观测结构以开放路径或往返走廊为主，未形成可分辨闭合主体。']
     if max(metrics['cycle_boundaries_m']) < cfg.min_resolved_length_m:
         return 3, ['仅有低于宏观形态尺度的局部闭合，整体仍由路径或走廊构成。']
-    if (metrics['dominant_boundary_share'] >= cfg.dominant_ring_share
-            and metrics['secondary_boundary_share'] < cfg.secondary_ring_share
-            and metrics['main_internal_share'] < cfg.internal_structure_share
-            and metrics['interior_bridge_share'] < cfg.internal_structure_share):
+    if metrics['dominant_boundary_share'] >= cfg.dominant_ring_share and not complex_evidence:
         return 2, ['单一O/Q形闭合主体占主导，其他行程为次要附属结构。']
+    if (not complex_evidence and not metrics['visual_crossing_hypothesis']
+            and metrics['dominant_boundary_share'] >= .70 * cfg.dominant_ring_share
+            and metrics['main_span_share'] >= .30
+            and metrics['repeated_exterior_bridge_share'] >= .40):
+        return 2, ['单一闭合主体达到整体尺度，环外主要为复走的接入路段。']
     if metrics['cyclic_unique_share'] < cfg.minimum_cyclic_share:
         return 3, ['线状或往返走廊占主导，局部闭合结构不足以代表整体。']
     main_share = metrics['dominant_boundary_share']
@@ -1646,10 +1659,18 @@ def _classify_prepared(coords, xy, distances, cfg, digest=None):
     local = _classify_local_shape(coords, xy, distances, cfg, digest)
     metrics = local['metrics']
     sample_counts = (129, 257)
+    # A short visual crossing may break the independent graph evidence on a
+    # closed traversal. Verify the dominant outline at both scales in that case.
+    closed_outline_candidate = (
+        local.get('reason_code') == 'ambiguous_shape'
+        and metrics.get('visual_crossing_hypothesis')
+        and metrics.get('dominant_boundary_share', 0.) >= .80
+        and metrics['unresolved_crossing_share'] <= cfg.maximum_crossing_share
+        and metrics['near_corridor_share'] <= cfg.maximum_unresolved_share)
     # Require separation between the outline sampling scale and GPS corridor scale.
     if (local['category'] == 2
             or (not metrics and local.get('reason_code') != 'resource_limit')
-            or np.linalg.norm(xy[-1] - xy[0]) <= 1e-8
+            or (np.linalg.norm(xy[-1] - xy[0]) <= 1e-8 and not closed_outline_candidate)
             or distances[-1] < (sample_counts[-1] - 1) * cfg.ambiguous_corridor_width_m):
         return local
     candidates = []
@@ -1679,6 +1700,14 @@ def _classify_prepared(coords, xy, distances, cfg, digest=None):
     if category == 3 and (local['category'] != 1
                           or metrics.get('near_corridor_share', 0.) <= cfg.maximum_unresolved_share):
         return local
+    if (category == 2
+            and metrics.get('interior_bridge_share', 0.) >= .75 * cfg.internal_structure_share
+            and metrics['main_span_share'] >= .85
+            and metrics['near_corridor_share'] <= cfg.maximum_unresolved_share
+            and metrics['unresolved_crossing_share'] <= cfg.maximum_crossing_share):
+        return _classification_result(
+            4, ['两种整体尺度均确认主环，且原始轨迹包含显著的环内往返支路。'],
+            cfg, metrics, input_hash=digest)
     reasons = {
         2: '两种整体采样尺度下均形成有明显围合面积的主导环边界。',
         3: '两种整体采样尺度下的净围合面积均很小，且存在显著近邻走廊。',
