@@ -1598,6 +1598,10 @@ def _macro_shape(xy, distances, cfg, sample_count):
     area_share = area / hull.volume
     summary = {'endpoint_gap_share': gap_share, 'signed_area_share': area_share}
     if hull.volume / extent**2 < .06:
+        # A narrow, nearly closed corridor can enclose small slivers even
+        # when the two passes are too far apart for ordered return matching.
+        if gap_share <= .03 and area_share <= .20:
+            return 3, summary
         return None, summary
     if area_share >= 1. and _repeated_macro_ring(outline, hull, extent):
         summary['repeated_ring'] = True
@@ -1624,7 +1628,8 @@ def _macro_shape(xy, distances, cfg, sample_count):
     # Keep the chord guard when an interior division encloses meaningful area.
     narrow_internal_tracks = (graph['main_largest_face_share'] >= .92
                               and graph['near_corridor_share'] >= graph['main_internal_share'])
-    if (gap_share <= .15 and area_share >= .40 and main_area >= .40
+    ring_gap_limit = .16 if area_share >= .70 and largest_face >= .65 else .15
+    if (gap_share <= ring_gap_limit and area_share >= .40 and main_area >= .40
             and main >= .75 * cfg.dominant_ring_share
             and secondary_area < .08
             and (graph['main_internal_share'] < cfg.internal_structure_share or narrow_internal_tracks)
