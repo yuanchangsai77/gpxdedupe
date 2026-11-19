@@ -306,37 +306,39 @@ class LocalServer(ThreadingHTTPServer):
         finally:
             self.run_lock.release()
 
-    def recognize_file(self, body):
-        radius = body.get("radius", 12)
-        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
-            raise APIError(400, "radius 必须是数值")
-        if not math.isfinite(radius) or not 1 <= radius <= 30:
-            raise APIError(400, "环识别 radius 必须在 1 至 30 米之间")
+    def classify_file(self, body):
         record = self.source_record(body.get("file_id"))
         if not self.run_lock.acquire(blocking=False):
             raise APIError(429, "正在分析或导出另一条路线，请完成后重试")
         try:
-            config = loop_recognition.LoopRecognitionConfig(match_radius_m=float(radius))
-            data = self.read_source(record, max_bytes=config.max_input_bytes)
-            result = loop_recognition.recognize_bytes(
-                data, config, source_name=record.snapshot_name)
-            # Recognition is read-only evidence, never an applicable transformation plan.
-            recognition_id = uuid.uuid4().hex
-            response = {**result, "recognition_id": recognition_id,
-                        "downloads": {"report": f"/api/download/{recognition_id}/report"}}
-            json.dumps(response, allow_nan=False)
-            self.prepare_output()
-            out = self.output_dir / recognition_id
-            with tempfile.TemporaryDirectory(prefix="recognition-", dir=self.output_dir) as tmp:
-                published = Path(tmp) / "published"
-                published.mkdir()
-                (published / "report.json").write_text(
-                    json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
-                published.rename(out)
-            self.register_downloads(recognition_id, out, {"report": "report.json"})
-            return response
+            config = loop_recognition.RouteShapeConfig()
+            if record.export is None:
+                result = loop_recognition.classify_route_bytes(
+                    self.read_source(record, max_bytes=config.max_input_bytes), config)
+            else:
+                safe_file(record.path, record.root)
+                try:
+                    route = record.export.load(record.entry)
+                except loop_recognition.ExportError as exc:
+                    raise APIError(409, str(exc)) from exc
+                result = loop_recognition.classify_export_record(route, config)
+            return self.publish_classification_report(result)
         finally:
             self.run_lock.release()
+
+    def publish_classification_report(self, result):
+        report_id = uuid.uuid4().hex
+        report = json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2)
+        self.prepare_output()
+        out = self.output_dir / report_id
+        with tempfile.TemporaryDirectory(prefix="report-", dir=self.output_dir) as tmp:
+            published = Path(tmp) / "published"
+            published.mkdir()
+            (published / "report.json").write_text(report, encoding="utf-8")
+            published.rename(out)
+        self.register_downloads(report_id, out, {"report": "report.json"})
+        return {**result, "classification_id": report_id,
+                "downloads": {"report": f"/api/download/{report_id}/report"}}
 
     def run_file(self, body):
         # Old clients cannot bypass P0: /api/run is now an analyze-only alias.
@@ -538,8 +540,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = self.server.preview_file(body)
                 elif path in ("/api/run", "/api/analyze"):
                     result = self.server.analyze_file(body)
-                elif path == "/api/recognize-loops":
-                    result = self.server.recognize_file(body)
+                elif path == "/api/classify":
+                    result = self.server.classify_file(body)
                 elif path == "/api/apply":
                     result = self.server.apply_file(body)
                 else:

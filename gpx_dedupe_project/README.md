@@ -62,7 +62,7 @@ python -m unittest discover -s tests -p "test_standalone_recognition.py" -v
 
 ## 整体路线形态四分类（单文件CLI）
 
-如果问题是“看整条路线，整体上像不像环”，使用 **`--classify`**，不要用严格简单环数量或`has_loops`代替最终类别。网页和旧命令仍是2.1详细诊断，本轮没有切换它们的协议。
+网页默认使用路线类型识别。选择 GPX 或 TopRoute JSON 中的一条路线，点击「识别路线类型」，即可查看类别、理由并下载 JSON 报告。命令行使用 **`--classify`** 识别整条 GPX 路线。
 
 | category | label | 含义 |
 |---|---|---|

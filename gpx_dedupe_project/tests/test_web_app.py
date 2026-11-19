@@ -447,71 +447,39 @@ class WebAppTests(unittest.TestCase):
                 self.assertEqual(self.request('POST', '/api/analyze', {'file_id': entry['id']})[0], 200)
             self.assertLessEqual(len(self.server.analyses), 2)
 
-    def recognition_fixture(self):
-        return {'schema_version': '2.1', 'kind': 'loop_recognition', 'input_sha256': 'abc',
-                'source_name': '路线.GPX', 'original': [[3.05, 36.75], [3.051, 36.751], [3.052, 36.752]],
-                'config': {'match_radius_m': 12.0},
-                'report': {'kind': 'loop_recognition', 'input_points': 3, 'input_length_m': 280,
-                           'whole_track': {'is_closed': False, 'start_end_distance_m': 280, 'tolerance_m': 25},
-                           'route_summary': {
-                               'source_interval': {
-                                   'start': {'segment_id': 0, 'edge_start_index': 0, 'edge_end_index': 1, 't': 0, 's_m': 0},
-                                   'end': {'segment_id': 0, 'edge_start_index': 1, 'edge_end_index': 2, 't': 1, 's_m': 280}},
-                               'length_m': 280, 'closure_kind': 'open', 'retrace_annotation_ids': [],
-                               'retrace_union_length_m': 0, 'retrace_union_fraction': 0,
-                               'retrace_measurement': 'exact_original_geometry', 'annotation_status': 'complete',
-                               'limitations': [], 'method': 'original_coordinate_palindromes_v1',
-                               'short_local_rule': {'max_length_m': 100, 'max_fraction': .05}},
-                           'retrace_annotations': [],
-                           'has_loops': False, 'loops': [], 'loop_candidates': [], 'closed_walks': [], 'events': [],
-                           'relations': [], 'completeness': 'complete', 'limitations': [],
-                           'road_identity_verified': False}}
-
-    def test_recognition_report_only_no_applicable_plan(self):
-        entry = self.files()[2]['files'][0]
-        before = dict(self.server.analyses)
-        source = (self.folder / '路线.GPX').read_bytes()
-        fixture = self.recognition_fixture()
-        with mock.patch.object(web_app.loop_recognition, 'recognize_bytes', return_value=fixture) as recognize:
-            status, _, result = self.request('POST', '/api/recognize-loops', {'file_id': entry['id']})
-        self.assertEqual(status, 200, result)
-        args, kwargs = recognize.call_args
-        self.assertEqual(args[0], source)
-        self.assertEqual(args[1].match_radius_m, 12)
-        self.assertEqual(kwargs, {'source_name': '路线.GPX'})
-        self.assertEqual(set(result['downloads']), {'report'})
-        for key in ('plan_digest', 'analysis_id', 'candidate', 'cleaned'):
-            self.assertNotIn(key, result)
-        self.assertEqual(self.server.analyses, before)
-        out = self.output / result['recognition_id']
-        self.assertEqual({p.name for p in out.iterdir()}, {'report.json'})
-        self.assertEqual(self.request(path=result['downloads']['report'])[2], fixture)
-        self.assert_error(self.request('POST', '/api/apply', {'analysis_id': result['recognition_id']}), 409)
-        self.assert_error(self.request(path=f"/api/download/{result['recognition_id']}/gpx"), 404)
-        self.assertEqual((self.folder / '路线.GPX').read_bytes(), source)
-
-    def test_recognition_validates_radius_and_source(self):
-        entry = self.files()[2]['files'][0]
-        for radius in (True, None, '12', 0, .99, 30.01, 100):
-            self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id'], 'radius': radius}), 400)
-        self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': 'unknown'}), 404)
-        with mock.patch.object(web_app.loop_recognition, 'recognize_bytes', return_value=self.recognition_fixture()) as recognize:
-            for radius in (1, 12.5, 30):
-                self.assertEqual(self.request('POST', '/api/recognize-loops', {'file_id': entry['id'], 'radius': radius})[0], 200)
-                self.assertEqual(recognize.call_args.args[1].match_radius_m, radius)
-        (self.folder / '路线.GPX').write_text('<!DOCTYPE gpx><gpx/>', encoding='utf-8')
-        self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}), 400)
-
-    def test_recognition_byte_limit_precedes_open_and_analysis(self):
+    def test_classification_matches_gpx_classifier_and_publishes_only_report(self):
         entry = self.files()[2]['files'][0]
         source = self.folder / '路线.GPX'
-        with source.open('wb') as stream:
-            stream.truncate(17 * 1024 * 1024)
-        with mock.patch.object(web_app.os, 'open', side_effect=AssertionError('must reject before open')), \
-                mock.patch.object(web_app.loop_recognition, 'recognize_bytes') as recognize:
-            self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}), 413)
-            recognize.assert_not_called()
-        self.assertFalse(self.server.run_lock.locked())
+        original = source.read_bytes()
+        expected = web_app.loop_recognition.classify_route_bytes(original)
+        status, _, result = self.request('POST', '/api/classify', {'file_id': entry['id']})
+        self.assertEqual(status, 200, result)
+        self.assertEqual(set(result['downloads']), {'report'})
+        self.assertEqual(self.request(path=result['downloads']['report'])[2], expected)
+        self.assertEqual({k: result[k] for k in expected}, expected)
+        self.assertEqual({p.name for p in (self.output / result['classification_id']).iterdir()}, {'report.json'})
+        self.assert_error(self.request('POST', '/api/apply', {'analysis_id': result['classification_id']}), 409)
+        self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}), 404)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_classification_matches_toproute_classifier(self):
+        route = {"topRouteId": "test-route", "segments": [{"routePoints": [
+            {"longitude": 3.05, "latitude": 36.75},
+            {"longitude": 3.06, "latitude": 36.75},
+            {"longitude": 3.06, "latitude": 36.76},
+            {"longitude": 3.05, "latitude": 36.76},
+            {"longitude": 3.05, "latitude": 36.75},
+        ]}]}
+        source = self.folder / "routes.json"
+        source.write_text(json.dumps(route), encoding="utf-8")
+        status, _, listing = self.request("POST", "/api/files", {"paths": [str(source)]})
+        self.assertEqual(status, 200, listing)
+        entry = listing["files"][0]
+        status, _, result = self.request("POST", "/api/classify", {"file_id": entry["id"]})
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["category"], 2)
+        self.assertEqual(self.request(path=result["downloads"]["report"])[2],
+                         web_app.loop_recognition.classify_export_record(route))
 
     def test_source_read_honors_smaller_limit_when_file_grows_after_stat(self):
         entry = self.files()[2]['files'][0]
@@ -523,169 +491,6 @@ class WebAppTests(unittest.TestCase):
             with self.assertRaises(web_app.APIError) as caught:
                 self.server.read_source(record, max_bytes=32)
         self.assertEqual(caught.exception.status, 413)
-
-    def test_recognition_admission_and_origin_safety(self):
-        entry = self.files()[2]['files'][0]
-        self.server.run_lock.acquire()
-        try:
-            with mock.patch.object(self.server, 'read_source', side_effect=AssertionError('must not read')):
-                self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}), 429)
-        finally:
-            self.server.run_lock.release()
-        self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}, {'Origin': 'https://evil.example'}), 403)
-
-    def test_recognition_error_does_not_publish_and_releases_lock(self):
-        entry = self.files()[2]['files'][0]
-        before = set(self.output.iterdir()) if self.output.exists() else set()
-        downloads = dict(self.server.downloads)
-        with mock.patch.object(web_app.loop_recognition, 'recognize_bytes', side_effect=web_app.loop_recognition.RecognitionError('invalid track')):
-            self.assert_error(self.request('POST', '/api/recognize-loops', {'file_id': entry['id']}), 400)
-        self.assertFalse(self.server.run_lock.locked())
-        self.assertEqual(set(self.output.iterdir()) if self.output.exists() else set(), before)
-        self.assertEqual(self.server.downloads, downloads)
-
-    def assert_recognition_measurements_and_privacy(self, result):
-        self.assertEqual(result['schema_version'], '2.1')
-        report = result['report']
-        summary = report['route_summary']
-        self.assertEqual(summary['method'], 'original_coordinate_palindromes_v1')
-        self.assertEqual(summary['retrace_measurement'], 'exact_original_geometry')
-        self.assertEqual(summary['short_local_rule'], {'max_length_m': 100, 'max_fraction': .05})
-        self.assertIn(summary['annotation_status'], ('complete', 'partial'))
-        self.assertAlmostEqual(summary['length_m'], report['input_length_m'])
-        self.assertEqual(summary['source_interval']['start']['s_m'], 0)
-        self.assertAlmostEqual(summary['source_interval']['end']['s_m'], report['input_length_m'])
-        annotations = report['retrace_annotations']
-        self.assertEqual(summary['retrace_annotation_ids'], [item['id'] for item in annotations])
-        ranges = []
-        for annotation in annotations:
-            self.assertEqual(annotation['measurement'], 'exact_original_geometry')
-            start = annotation['source_interval']['start']['s_m']
-            end = annotation['source_interval']['end']['s_m']
-            self.assertAlmostEqual(annotation['length_m'], end - start)
-            self.assertAlmostEqual(annotation['fraction_of_track'], annotation['length_m'] / report['input_length_m'])
-            self.assertLess(annotation['start_vertex_index'], annotation['turn_vertex_index'])
-            self.assertLess(annotation['turn_vertex_index'], annotation['end_vertex_index'])
-            self.assertLess(annotation['end_vertex_index'], len(result['original']))
-            self.assertGreater(annotation['turnaround']['s_m'], start)
-            self.assertLess(annotation['turnaround']['s_m'], end)
-            self.assertEqual(annotation['evidence'], {'method': 'original_reverse_vertex_sequence',
-                                                    'boundary_basis': 'original_vertices', 'max_reverse_error_m': 0})
-            self.assertIn('exact_recorded_coordinates_do_not_verify_road_identity', annotation['warnings'])
-            ranges.append((start, end))
-        union, right = 0, 0
-        for start, end in sorted(ranges):
-            union += max(0, end - max(start, right))
-            right = max(right, end)
-        self.assertAlmostEqual(summary['retrace_union_length_m'], union)
-        self.assertAlmostEqual(summary['retrace_union_fraction'], union / report['input_length_m'])
-        status, headers, downloaded = self.request(path=result['downloads']['report'])
-        self.assertEqual(status, 200)
-        self.assertIn('attachment;', headers['Content-Disposition'])
-        self.assertEqual(downloaded['report'], report)
-        self.assertEqual(downloaded['schema_version'], result['schema_version'])
-        self.assertEqual(set(result['downloads']), {'report'})
-        for payload in (result, downloaded):
-            serialized = json.dumps(payload, ensure_ascii=False)
-            for absolute in (str(self.folder), str(self.root), str(self.output)):
-                self.assertNotIn(absolute, serialized)
-            self.assertNotIn('source_path', serialized)
-            self.assertNotIn('output_dir', serialized)
-            self.assertNotIn('plan_digest', payload)
-        return summary
-
-    def test_recognition_real_minimal_gpx(self):
-        entry = self.files()[2]['files'][0]
-        status, _, result = self.request('POST', '/api/recognize-loops', {'file_id': entry['id']})
-        self.assertEqual(status, 200, result)
-        self.assertEqual(result['schema_version'], '2.1')
-        self.assertEqual(result['kind'], 'loop_recognition')
-        self.assertEqual(result['original'], self.recognition_fixture()['original'])
-        self.assertEqual(result['report']['closed_walks'], [])
-        self.assertFalse(result['report']['road_identity_verified'])
-        summary = self.assert_recognition_measurements_and_privacy(result)
-        self.assertEqual(summary['closure_kind'], 'open')
-        self.assertEqual(summary['retrace_union_length_m'], 0)
-        self.assertEqual(result['report']['retrace_annotations'], [])
-
-    def test_recognition_real_closed_walk_preserves_internal_retrace(self):
-        # A-B-C-D-C-E-A is not the invented simple loop A-B-C-E-A.
-        points = [(3.05, 36.75), (3.054, 36.75), (3.054, 36.754),
-                  (3.056, 36.754), (3.054, 36.754), (3.05, 36.754), (3.05, 36.75)]
-        gpx = ('<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>'
-               + ''.join(f'<trkpt lon="{lon}" lat="{lat}"/>' for lon, lat in points)
-               + '</trkseg></trk></gpx>')
-        source_path = self.folder / '路线.GPX'
-        source_path.write_text(gpx, encoding='utf-8')
-        before = source_path.read_bytes()
-        entry = self.files()[2]['files'][0]
-        status, _, result = self.request('POST', '/api/recognize-loops', {'file_id': entry['id']})
-        self.assertEqual(status, 200, result)
-        self.assertEqual(result['schema_version'], '2.1')
-        self.assertEqual(result['original'], [list(point) for point in points])
-        report = result['report']
-        self.assertFalse(report['has_loops'])
-        self.assertEqual(report['loops'], [])
-        self.assertTrue(report['closed_walks'])
-        full_occurrences = []
-        for walk in report['closed_walks']:
-            self.assertEqual(walk['kind'], 'closed_walk')
-            self.assertIsInstance(walk['contains_retrace'], bool)
-            self.assertIsInstance(walk['contains_subloops'], bool)
-            self.assertIsInstance(walk['warnings'], list)
-            for occurrence in walk['occurrences']:
-                self.assertEqual(len(occurrence['source_intervals']), 1)
-                self.assertEqual(occurrence['excluded_intervals'], [])
-                self.assertAlmostEqual(occurrence['length_m'], occurrence['end_m'] - occurrence['start_m'])
-                interval = occurrence['source_intervals'][0]
-                self.assertAlmostEqual(interval['start']['s_m'], occurrence['start_m'])
-                self.assertAlmostEqual(interval['end']['s_m'], occurrence['end_m'])
-                if occurrence['start_m'] < 1 and abs(occurrence['end_m'] - report['input_length_m']) < 1:
-                    full_occurrences.append((walk, occurrence))
-        self.assertTrue(full_occurrences, 'full ABCDCEA must be represented without removing CDC')
-        self.assertTrue(any(walk['contains_retrace'] for walk, _ in full_occurrences))
-        summary = self.assert_recognition_measurements_and_privacy(result)
-        self.assertEqual(summary['closure_kind'], 'exact_endpoint')
-        self.assertGreater(summary['retrace_union_length_m'], 0)
-        annotation = report['retrace_annotations'][0]
-        self.assertEqual([annotation[key] for key in ('start_vertex_index', 'turn_vertex_index', 'end_vertex_index')], [2, 3, 4])
-        self.assertFalse(annotation['is_short_local'])
-        for walk, occurrence in full_occurrences:
-            self.assertGreater(occurrence['source_intervals'][0]['end']['edge_start_index'], 3)
-            self.assertEqual(occurrence['status'], 'complete')
-        status, _, downloaded = self.request(path=result['downloads']['report'])
-        self.assertEqual(status, 200)
-        self.assertEqual(downloaded['schema_version'], '2.1')
-        self.assertEqual(downloaded['report'], report)
-        self.assertEqual(set(result['downloads']), {'report'})
-        self.assertEqual(source_path.read_bytes(), before)
-
-    def test_recognition_actual_short_retrace_measurement(self):
-        candidates = [web_app.PROJECT_DIR / 'examples' / '34044351.gpx',
-                      Path(web_app.DEFAULT_DIR) / '34044351.gpx']
-        fixture = next((item for item in candidates if item.is_file()), None)
-        if fixture is None:
-            self.skipTest('34044351.gpx fixture 不存在；合成端到端测量测试仍运行')
-        # Optional private local fixture stays in place, read-only; never copy it.
-        status, _, listing = self.request('POST', '/api/files', {'folder': str(fixture.parent)})
-        self.assertEqual(status, 200)
-        entry = next(item for item in listing['files'] if item['name'] == fixture.name)
-        source = fixture.read_bytes()
-        before_analyses = dict(self.server.analyses)
-        status, _, result = self.request('POST', '/api/recognize-loops', {'file_id': entry['id']})
-        self.assertEqual(status, 200, result)
-        summary = self.assert_recognition_measurements_and_privacy(result)
-        self.assertAlmostEqual(summary['retrace_union_length_m'], 44.421705, places=3)
-        self.assertAlmostEqual(summary['retrace_union_fraction'], .01043595, places=6)
-        self.assertEqual(len(result['report']['retrace_annotations']), 1)
-        annotation = result['report']['retrace_annotations'][0]
-        self.assertTrue(annotation['is_short_local'])
-        self.assertEqual([annotation[key] for key in ('start_vertex_index', 'turn_vertex_index', 'end_vertex_index')], [80, 82, 84])
-        self.assertEqual(self.server.analyses, before_analyses)
-        self.assertEqual(fixture.read_bytes(), source)
-        self.assertNotIn(str(fixture.parent), json.dumps(result, ensure_ascii=False))
-        self.assertNotIn(str(fixture), json.dumps(result, ensure_ascii=False))
-        self.assertEqual({item.name for item in (self.output / result['recognition_id']).iterdir()}, {'report.json'})
 
     def test_bind_and_cli_reject_nonloopback(self):
         for host in ("0.0.0.0", "192.168.1.1", "example.com", "::", "::1"):
