@@ -166,6 +166,31 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("attachment;", headers["Content-Disposition"])
         self.assert_error(self.request(path=f"/api/download/{result['analysis_id']}/gpx"), 404)
 
+    def test_single_route_gpx(self):
+        path = self.folder / "路线.GPX"
+        route = MINIMAL_GPX.replace("<trk><trkseg>", "<wpt lat=\"0\" lon=\"0\"/><rte>")
+        route = route.replace("</trkseg></trk>", "</rte>").replace("trkpt", "rtept")
+        path.write_text(route, encoding="utf-8")
+        body = {"file_id": self.files()[2]["files"][0]["id"]}
+        for endpoint in ("preview", "classify", "analyze"):
+            with self.subTest(endpoint=endpoint):
+                status, _, result = self.request("POST", f"/api/{endpoint}", body)
+                self.assertEqual(status, 200, result)
+        self.assertEqual(result["original"], [[3.05, 36.75], [3.051, 36.751], [3.052, 36.752]])
+
+        path.write_text(route.replace("</gpx>", "<rte/></gpx>"), encoding="utf-8")
+        body = {"file_id": self.files()[2]["files"][0]["id"]}
+        for endpoint in ("preview", "classify", "analyze"):
+            with self.subTest(endpoint=endpoint):
+                status, _, result = self.request("POST", f"/api/{endpoint}", body)
+                if endpoint == "classify":
+                    self.assertEqual(status, 200, result)
+                    self.assertEqual(result["category"], 1)
+                    self.assertIn("多条路线", result["reasons"][0])
+                else:
+                    self.assertEqual(status, 400, result)
+                    self.assertIn("多条路线", result["error"])
+
     def test_real_fixture_run(self):
         candidates = [web_app.PROJECT_DIR / "examples" / "34044834.gpx", web_app.PROJECT_DIR / "34044834.gpx"]
         fixture = next((p for p in candidates if p.is_file()), None)

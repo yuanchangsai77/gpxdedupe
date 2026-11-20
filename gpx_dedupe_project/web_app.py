@@ -640,14 +640,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(error.status, {"error": str(error)})
         except loop_recognition.RecognitionError as error:
             self.send_json(400, {"error": f"环识别失败：{error}"})
-        except route_plans.PlanError as error:
+        except (route_plans.PlanError, route_dedupe.GPXStructureError) as error:
             self.send_json(400, {"error": str(error)})
         except FileNotFoundError:
             self.send_json(404, {"error": "文件或目录不存在"})
         except PermissionError:
             self.send_json(403, {"error": "没有权限访问文件或目录"})
         except (ValueError, KeyError, OverflowError, route_dedupe.ET.ParseError):
-            self.send_json(400, {"error": "参数或 GPX 内容无效；仅支持至少三个点的单轨迹段"})
+            self.send_json(400, {"error": "参数或 GPX 内容无效，请检查文件格式和坐标"})
         except (TimeoutError, ConnectionError):
             self.close_connection = True
         except OSError:

@@ -19,6 +19,11 @@ import numpy as np
 from scipy.spatial import cKDTree
 from pyproj import CRS, Transformer
 
+if __package__:
+    from .loop_recognition import GPXStructureError, gpx_points
+else:
+    from loop_recognition import GPXStructureError, gpx_points
+
 NS = "http://www.topografix.com/GPX/1/1"
 ET.register_namespace('', NS)
 
@@ -38,11 +43,7 @@ class Config:
 
 def load_gpx(path):
     root = ET.parse(path).getroot()
-    segs = root.findall('.//' + tag('trkseg'))
-    if len(segs) != 1:
-        raise ValueError(f'V0.1 only supports one track segment, found {len(segs)}; merge deliberately rather than bridging gaps')
-    elems = segs[0].findall(tag('trkpt'))
-    if len(elems)<3: raise ValueError('Need >=3 trackpoints')
+    elems = gpx_points(root)
     lonlat=np.array([[float(e.attrib['lon']),float(e.attrib['lat'])] for e in elems])
     eles=np.array([float(e.findtext(tag('ele'))) if e.findtext(tag('ele')) is not None else np.nan for e in elems])
     title=root.findtext('.//' + tag('metadata') + '/' + tag('name')) or (Path(path).stem if isinstance(path, (str, Path)) else "track")

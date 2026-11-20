@@ -33,6 +33,28 @@ def _tag(name):
     return f'{{{GPX_NAMESPACE}}}{name}'
 
 
+class GPXStructureError(ValueError):
+    pass
+
+
+def gpx_points(root):
+    segments = root.findall('.//' + _tag('trkseg'))
+    if len(segments) > 1:
+        raise GPXStructureError('GPX 包含多个轨迹段，请选择单段文件。')
+    if segments:
+        points = segments[0].findall(_tag('trkpt'))
+    else:
+        routes = root.findall(_tag('rte'))
+        if not routes:
+            raise GPXStructureError('GPX 缺少轨迹段或路线。')
+        if len(routes) > 1:
+            raise GPXStructureError('GPX 包含多条路线，请选择单条路线文件。')
+        points = routes[0].findall(_tag('rtept'))
+    if len(points) < 3:
+        raise GPXStructureError('GPX 的轨迹段或路线至少需要三个点。')
+    return points
+
+
 def _projection(lonlat):
     # Keep the same local UTM selection and arithmetic as the original engine.
     # Input span/polar admission remains in _load below.
@@ -109,11 +131,8 @@ def _load(raw, cfg):
         raise RecognitionError('不支持 DTD、实体声明或含 NUL 的 XML。')
     try:
         root = ET.fromstring(raw)
-        segs = root.findall('.//' + _tag('trkseg'))
-        if len(segs) != 1:
-            raise RecognitionError('环识别仅支持恰好一个 trkseg，不会跨断点连接。')
-        points = segs[0].findall(_tag('trkpt'))
-        if not 3 <= len(points) <= cfg.max_points:
+        points = gpx_points(root)
+        if len(points) > cfg.max_points:
             raise RecognitionError('轨迹点数超出支持范围。')
         coords = np.asarray([[float(p.attrib['lon']), float(p.attrib['lat'])] for p in points])
         if (not np.isfinite(coords).all() or np.any(np.abs(coords[:, 0]) > 180)
@@ -125,6 +144,8 @@ def _load(raw, cfg):
                 raise RecognitionError('海拔必须是有限数值。')
     except RecognitionError:
         raise
+    except GPXStructureError as exc:
+        raise RecognitionError(str(exc)) from exc
     except (ET.ParseError, ValueError, KeyError, TypeError, OverflowError, LookupError) as exc:
         raise RecognitionError('GPX 格式或坐标无效。') from exc
     return _prepare_coordinates(coords, cfg)

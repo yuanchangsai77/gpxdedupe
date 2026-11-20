@@ -46,7 +46,7 @@ class PlanError(ValueError):
         "Cannot read input GPX": "无法读取输入 GPX 文件。",
         "Input byte limit exceeded": "输入文件超过大小限制。",
         "DTD/entities and NUL-encoded XML are not supported": "不支持 DTD、实体声明或含 NUL 的 XML 编码。",
-        "Exactly one track segment is required": "仅支持恰好一个轨迹段。",
+        "Input point limit exceeded": f"输入点数不能超过 {MAX_POINTS}。",
         "Coordinates must be finite valid longitude/latitude": "经纬度必须是有限数值且在有效范围内。",
         "Elevation must be finite when supplied": "提供的海拔必须是有限数值。",
         "Projection produced nonfinite coordinates": "坐标投影无效，无法安全分析。",
@@ -72,6 +72,9 @@ class PlanError(ValueError):
     }
 
     def __init__(self, message):
+        if isinstance(message, rd.GPXStructureError):
+            super().__init__(str(message))
+            return
         translated = self._messages.get(message)
         if translated is None:
             # Variable-field errors contain only our fixed field names/numbers,
@@ -80,8 +83,6 @@ class PlanError(ValueError):
                 translated = f"配置参数 {message.split()[1]} 无效；请检查有限数值和允许范围。"
             elif message.endswith(" must be an exact bool"):
                 translated = f"确认参数 {message.split()[0]} 必须是明确的布尔值。"
-            elif message.startswith("Input must contain 3.."):
-                translated = f"输入必须包含 3 至 {MAX_POINTS} 个轨迹点。"
             else:
                 translated = "计划参数无效，无法安全处理。"
         super().__init__(translated)
@@ -151,12 +152,9 @@ def _validate(raw, cfg):
         raise PlanError("DTD/entities and NUL-encoded XML are not supported")
     try:
         root = ET.fromstring(raw)
-        segments = root.findall(".//" + rd.tag("trkseg"))
-        if len(segments) != 1:
-            raise PlanError("Exactly one track segment is required")
-        points = segments[0].findall(rd.tag("trkpt"))
-        if not 3 <= len(points) <= MAX_POINTS:
-            raise PlanError(f"Input must contain 3..{MAX_POINTS} trackpoints")
+        points = rd.gpx_points(root)
+        if len(points) > MAX_POINTS:
+            raise PlanError("Input point limit exceeded")
         coords = []
         for point in points:
             lon, lat = float(point.attrib["lon"]), float(point.attrib["lat"])
@@ -185,6 +183,8 @@ def _validate(raw, cfg):
             raise PlanError("Spatial pair limit exceeded")
     except PlanError:
         raise
+    except rd.GPXStructureError as exc:
+        raise PlanError(exc) from exc
     except (ET.ParseError, KeyError, TypeError, ValueError, OverflowError, LookupError) as exc:
         raise PlanError("Malformed or invalid GPX") from exc
     return coords

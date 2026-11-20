@@ -73,7 +73,7 @@
 </div></section>
 
 <section class="about-section" id="technical"><h2>历史技术参考：legacy 转换怎样判定？</h2><p>下面是 <code>route_dedupe.py</code> 的旧版转换规则，不是默认模式使用的 <code>loop_recognition.py</code> 路线类型识别流程，也不是完整道路拓扑分类器。</p><div class="steps">
-<article class="step"><h3>读取、投影、采样</h3><p>GPX 1.1，恰好一个 trkseg、至少 3 个点；以本地 UTM 投影计算米制距离，每 10 米重采样。海拔可输出，但不参与匹配。</p></article>
+<article class="step"><h3>读取、投影、采样</h3><p>GPX 1.1 优先读取单个 trkseg。没有轨迹段时，支持读取单条 rte（如部分两步路导出）。至少需要 3 个点。以本地 UTM 投影计算米制距离，每 10 米重采样。海拔可输出，但不参与匹配。</p></article>
 <article class="step"><h3>先看闭合与近邻</h3><p>首尾距离不超过 25 米才进入闭环变换。cKDTree 搜索近邻，默认匹配半径 18 米。overlap_candidates 只是非相邻样本的潜在近邻统计，不是道路重合率。</p></article>
 <article class="step"><h3>找连续反向匹配</h3><p>搜索前 45% 与后 45%，方向点积 ≤ −0.55（约大于 123°）。反向沿程不回退，局部进度误差受限；允许约 70–80 米短缺口，再以连续段密度约束过滤。</p></article>
 <article class="step"><h3>筛选有效尾巴切点</h3><p>匹配至少 150 米、段内密度至少 85%、覆盖两侧待裁行程各至少 70%。保留中段至少 450 米，排除近似镜像纯往返；切点间距 ≤20 米。末尾不合格时回看较早有效切点。</p></article>
