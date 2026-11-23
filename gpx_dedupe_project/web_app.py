@@ -26,7 +26,7 @@ import route_plans
 import loop_recognition
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_DIR = r"D:\7281\workspace\route\1\komoot\Algeria\Algeria\02_明细\gpx"
+DEFAULT_DIR = r"C:\Users\7281\Downloads\route"
 MAX_BODY_BYTES = 16 * 1024
 MAX_GPX_BYTES = 50 * 1024 * 1024
 MAX_FILES = 2000
@@ -122,7 +122,7 @@ class LocalServer(ThreadingHTTPServer):
                 ) if recursive else []
                 for name in sorted(names):
                     path = Path(directory) / name
-                    if (path.suffix.lower() == ".gpx" or name.lower().endswith(".export.json")) and not has_link(path):
+                    if (path.suffix.lower() == ".gpx" or name.lower().endswith((".export.json", ".ndjson", ".jsonl"))) and not has_link(path):
                         yield path
 
         def add(record, name, relative, size, source):
@@ -158,7 +158,7 @@ class LocalServer(ThreadingHTTPServer):
                         relative = path.relative_to(root).as_posix()
                         if path.suffix.lower() == ".gpx":
                             add(FileRecord(path, root), path.name, relative, stat.st_size, source)
-                        elif path.suffix.lower() == ".json":
+                        elif path.suffix.lower() in (".json", ".ndjson", ".jsonl"):
                             index = loop_recognition.RouteExportIndex(path)
                             supported = [entry for entry in index.entries if entry["schema_supported"]]
                             if not supported:
@@ -174,7 +174,7 @@ class LocalServer(ThreadingHTTPServer):
                                 if truncated:
                                     break
                         else:
-                            raise APIError(400, "支持 GPX 和 TopRoute JSON 文件")
+                            raise APIError(400, "支持 GPX、TopRoute JSON、NDJSON 或 JSONL 文件")
                         seen.add(path)
                     except (APIError, loop_recognition.ExportError, OSError) as exc:
                         errors.append(f"{path}：{exc}")

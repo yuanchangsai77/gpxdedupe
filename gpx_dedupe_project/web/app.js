@@ -9,6 +9,136 @@ if ($('folder-form')) startWorkbench();
 function startWorkbench() {
   const state = {config:null, files:[], expanded:new Map(), preview:null, selected:null, result:null, analysis:null, applied:false, busy:false, scanning:false, workMode:'classification', mode:'split', zoom:1, panX:0, panY:0, bounds:null, table:'original', version:0, operation:null};
   const classifying=()=>state.workMode==='classification';
+  const overview = {generation:0, routes:[], bounds:null, zoom:1, x:0, y:0};
+  function gpsToOverviewCoordinate([lng,lat]) {
+    if($('overview-crs').value==='gcj02' || lng<72.004 || lng>137.8347 || lat<.8293 || lat>55.8271)return [lng,lat];
+    const x=lng-105,y=lat-35,pi=Math.PI;
+    let dLat=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x));
+    dLat+=(20*Math.sin(6*x*pi)+20*Math.sin(2*x*pi))*2/3;
+    dLat+=(20*Math.sin(y*pi)+40*Math.sin(y*pi/3))*2/3;
+    dLat+=(160*Math.sin(y*pi/12)+320*Math.sin(y*pi/30))*2/3;
+    let dLng=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));
+    dLng+=(20*Math.sin(6*x*pi)+20*Math.sin(2*x*pi))*2/3;
+    dLng+=(20*Math.sin(x*pi)+40*Math.sin(x*pi/3))*2/3;
+    dLng+=(150*Math.sin(x*pi/12)+300*Math.sin(x*pi/30))*2/3;
+    const rad=lat*pi/180,sin=Math.sin(rad),magic=1-.006693421622965943*sin*sin;
+    dLat=dLat*180/((6378245*(1-.006693421622965943))/(magic*Math.sqrt(magic))*pi);
+    dLng=dLng*180/(6378245/Math.sqrt(magic)*Math.cos(rad)*pi);
+    return [lng+dLng,lat+dLat];
+  }
+  function projectOverviewRoute(original){
+    return original.map(gpsToOverviewCoordinate).map(([lng,lat])=>[lng*Math.PI/180,Math.log(Math.tan(Math.PI/4+Math.max(-85,Math.min(85,lat))*Math.PI/360))]);
+  }
+  function extendOverviewBounds(points){
+    for(const [x,y] of points){if(!overview.bounds)overview.bounds={minX:x,maxX:x,minY:y,maxY:y};const b=overview.bounds;b.minX=Math.min(b.minX,x);b.maxX=Math.max(b.maxX,x);b.minY=Math.min(b.minY,y);b.maxY=Math.max(b.maxY,y);}
+  }
+  function overviewBaseScale(){
+    const canvas=$('overview-map'),b=overview.bounds;
+    return b?Math.min(Math.max(1,canvas.clientWidth-60)/Math.max(b.maxX-b.minX,1e-7),Math.max(1,canvas.clientHeight-60)/Math.max(b.maxY-b.minY,1e-7)):256/(2*Math.PI);
+  }
+  function clampOverviewZoom(zoom){
+    const base=overviewBaseScale();
+    return Math.max(256/(2*Math.PI)/base,Math.min(256*2**18/(2*Math.PI)/base,zoom));
+  }
+  function setView(view) {
+    document.body.dataset.view=view;
+    for(const [id,target] of [['nav-overview','overview'],['nav-workbench','workbench']]){
+      if(view===target)$(id).setAttribute('aria-current','page');else $(id).removeAttribute('aria-current');
+    }
+    if(view==='overview') drawOverview(); else renderMaps();
+  }
+  function routeView() { setView(location.hash==='#workbench'?'workbench':'overview'); }
+  window.addEventListener('hashchange',routeView);
+  function fitOverview() { overview.zoom=clampOverviewZoom(1);overview.x=0;overview.y=0;drawOverview(); }
+  const overviewTiles=new Map();let overviewFrame=null;
+  function scheduleOverview(){if(overviewFrame!==null)return;overviewFrame=requestAnimationFrame(()=>{overviewFrame=null;drawOverview();});}
+  function drawOverviewTiles(ctx,width,height,scale,cx,cy){
+    // Slippy-map tiles and route coordinates share the same Web Mercator projection.
+    const world=2*Math.PI;
+    const level=Math.max(0,Math.min(18,Math.floor(Math.log2(world*scale/256))));
+    const count=2**level, span=world/count, size=span*scale;
+    const left=cx-width/(2*scale), top=cy+height/(2*scale);
+    const firstX=Math.floor((left+Math.PI)/span),lastX=Math.floor((cx+width/(2*scale)+Math.PI)/span);
+    const firstY=Math.max(0,Math.floor((Math.PI-top)/span)),lastY=Math.min(count-1,Math.floor((Math.PI-cy+height/(2*scale))/span));
+    let unavailable=false;
+    for(let y=firstY;y<=lastY;y++)for(let x=firstX;x<=lastX;x++){
+      const tileX=((x%count)+count)%count,key=`${level}/${tileX}/${y}`;
+      let tile=overviewTiles.get(key);
+      if(!tile){
+        const img=new Image();tile={img,ready:false,failed:false};overviewTiles.set(key,tile);
+        img.onload=()=>{tile.ready=true;scheduleOverview();};
+        img.onerror=()=>{tile.failed=true;scheduleOverview();};
+        const subdomain=1+((tileX+y)%4);
+        img.src=`https://wprd0${subdomain}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x=${tileX}&y=${y}&z=${level}&ltype=3`;
+      }
+      // Keep recently visible tiles while bounding memory during long map sessions.
+      overviewTiles.delete(key);overviewTiles.set(key,tile);
+      if(tile.ready)ctx.drawImage(tile.img,width/2+(-Math.PI+x*span-cx)*scale,height/2-(Math.PI-y*span-cy)*scale,size+.5,size+.5);
+      if(tile.failed)unavailable=true;
+    }
+    while(overviewTiles.size>384)overviewTiles.delete(overviewTiles.keys().next().value);
+    $('overview-tile-status').textContent=unavailable?'部分底图瓦片加载失败，请检查网络。':'';
+  }
+  function drawOverview() {
+    const canvas=$('overview-map'), width=canvas.clientWidth, height=canvas.clientHeight;
+    if(!width || !height)return;
+    const ratio=window.devicePixelRatio||1;canvas.width=width*ratio;canvas.height=height*ratio;
+    const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.clearRect(0,0,width,height);
+    if(!overview.bounds)return;
+    const b=overview.bounds, scale=overviewBaseScale()*overview.zoom;
+    drawOverviewTiles(ctx,width,height,scale,(b.minX+b.maxX)/2-overview.x/scale,(b.minY+b.maxY)/2+overview.y/scale);
+    ctx.strokeStyle='#2879b9';ctx.globalAlpha=Number($('overview-opacity').value);ctx.lineWidth=1.3;ctx.lineJoin='round';
+    for(const route of overview.routes){ctx.beginPath();route.forEach((p,i)=>{const x=width/2+overview.x+(p[0]-(b.minX+b.maxX)/2)*scale,y=height/2+overview.y-(p[1]-(b.minY+b.maxY)/2)*scale;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();}
+  }
+  async function loadOverview(files, truncated) {
+    const generation=++overview.generation;
+    overview.routes=[];overview.bounds=null;fitOverview();
+    let cursor=0, completed=0, failed=0;
+    const progress=()=>{ $('overview-status').textContent=`已显示 ${overview.routes.length} / ${files.length} 条路线${completed<files.length?' · 正在加载…':''}${failed?` · ${failed} 条无法预览`:''}${truncated?' · 来源超过读取上限，仅展示前 2000 条':''}${!files.length?' · 请在左侧读取路线来源':''}`; };
+    progress();
+    await Promise.all(Array.from({length:Math.min(4,files.length)},async()=>{
+      while(cursor<files.length && generation===overview.generation){
+        const file=files[cursor++];
+        try {
+          const {original}=await api('/api/preview',{file_id:file.id});
+          if(generation!==overview.generation)return;
+          const raw=original.filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1])&&Math.abs(p[1])<=90&&Math.abs(p[0])<=180);
+          const points=projectOverviewRoute(raw);points.original=raw;
+          if(points.length<2)throw new Error('空轨迹');
+          overview.routes.push(points);
+          extendOverviewBounds(points);
+        }catch{if(generation!==overview.generation)return;failed++;}
+        completed++;progress();
+        if(completed%12===0 || completed===files.length){drawOverview();await new Promise(resolve=>requestAnimationFrame(resolve));}
+      }
+    }));
+  }
+  $('overview-crs').addEventListener('change',()=>{
+    overview.bounds=null;
+    overview.routes=overview.routes.map(route=>{const points=projectOverviewRoute(route.original);points.original=route.original;extendOverviewBounds(points);return points;});
+    fitOverview();
+  });
+  $('overview-fit').addEventListener('click',fitOverview);
+  $('overview-opacity').addEventListener('input',drawOverview);
+  function zoomOverview(factor,anchorX=$('overview-map').clientWidth/2,anchorY=$('overview-map').clientHeight/2){
+    const canvas=$('overview-map'),oldZoom=overview.zoom;
+    overview.zoom=clampOverviewZoom(oldZoom*factor);
+    const ratio=overview.zoom/oldZoom;
+    overview.x=(anchorX-canvas.clientWidth/2)*(1-ratio)+overview.x*ratio;
+    overview.y=(anchorY-canvas.clientHeight/2)*(1-ratio)+overview.y*ratio;
+    drawOverview();
+  }
+  $('overview-in').addEventListener('click',()=>zoomOverview(1.4));
+  $('overview-out').addEventListener('click',()=>zoomOverview(1/1.4));
+  const overviewCanvas=$('overview-map');let overviewDrag=null;
+  overviewCanvas.addEventListener('wheel',event=>{event.preventDefault();const rect=overviewCanvas.getBoundingClientRect();zoomOverview(event.deltaY<0?1.2:1/1.2,(event.clientX-rect.left)*overviewCanvas.clientWidth/rect.width,(event.clientY-rect.top)*overviewCanvas.clientHeight/rect.height);},{passive:false});
+  overviewCanvas.addEventListener('pointerdown',event=>{overviewDrag=[event.clientX,event.clientY];overviewCanvas.setPointerCapture(event.pointerId);});
+  overviewCanvas.addEventListener('pointermove',event=>{if(!overviewDrag)return;overview.x+=event.clientX-overviewDrag[0];overview.y+=event.clientY-overviewDrag[1];overviewDrag=[event.clientX,event.clientY];drawOverview();});
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])overviewCanvas.addEventListener(name,()=>overviewDrag=null);
+  overviewCanvas.addEventListener('dblclick',fitOverview);
+  overviewCanvas.addEventListener('keydown',event=>{if(event.key==='Home'){event.preventDefault();fitOverview();return;}const d={ArrowLeft:[30,0],ArrowRight:[-30,0],ArrowUp:[0,30],ArrowDown:[0,-30]}[event.key];if(d){event.preventDefault();overview.x+=d[0];overview.y+=d[1];drawOverview();}});
+  new ResizeObserver(drawOverview).observe(overviewCanvas);
+
   const labelGroups = [
     ['识别失败', [
       ['1-1','无效轨迹','缺失、断裂、严重漂移或无法判定','M2 17 7 12 9 14 M13 9 16 6 18 12 M20 8 22 4'],
@@ -251,6 +381,7 @@ function startWorkbench() {
     renderTable();
   }
   async function selectFile(file) {
+    location.hash='workbench';setView('workbench');
     $('label-status').textContent = '';
     state.selected=file;state.preview=null;invalidate();controls();
     $('files').querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed','false');
@@ -332,16 +463,18 @@ function startWorkbench() {
   async function scan(folder) {
     if(state.busy || state.scanning) return;
     const paths=folder.split(/\r?\n/).map(path=>path.trim().replace(/^"|"$/g,'')).filter(Boolean);
+    overview.generation++;overview.routes=[];overview.bounds=null;drawOverview();$('overview-status').textContent='正在读取路线来源…';
     state.scanning=true;state.selected=null;state.preview=null;state.files=[];state.expanded.clear();
     invalidate();renderFiles();controls();status('正在读取路线来源…');
     try {
       const data=await api('/api/files',{paths,recursive:$('recursive').checked});
       state.files=data.files;
+      void loadOverview(data.files,data.truncated);
       const messages=[`已读取 ${data.files.length} 条路线。点击路线即可预览。`];
       if(data.truncated)messages.push('仅显示前 2000 条路线。');
       if(data.errors?.length)messages.push(...data.errors);
       status(messages.join(' '),Boolean(data.errors?.length));
-    } catch(error){status(error.message,true);}
+    } catch(error){status(error.message,true);$('overview-status').textContent=error.message;}
     finally{state.scanning=false;renderFiles();controls();}
   }
   $('folder-form').addEventListener('submit',event=>{event.preventDefault();scan($('folder').value.trim());});
@@ -523,7 +656,7 @@ function startWorkbench() {
   $('table-original').addEventListener('click',()=>{state.table='original';renderTable();});$('table-clean').addEventListener('click',()=>{state.table='cleaned';renderTable();});
   // Legacy clients can explicitly opt into the unchanged P0 workflow.
   if(new URLSearchParams(location.search).get('mode')==='transform')state.workMode='transform';
-  modeSettings();invalidate();controls();
+  modeSettings();invalidate();controls();routeView();
   loadLabels();
-  (async()=>{try{state.config=await api('/api/config');$('folder').value=state.config.default_dir;await scan(state.config.default_dir);}catch(error){status(error.message,true);}})();
+  (async()=>{try{state.config=await api('/api/config');$('folder').value=state.config.default_dir;await scan(state.config.default_dir);}catch(error){status(error.message,true);$('overview-status').textContent=error.message;}})();
 }

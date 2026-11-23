@@ -1819,10 +1819,10 @@ def classify_route(path, config=None):
     return classify_route_bytes(raw, cfg)
 
 
-MAX_EXPORT_BYTES = 256 * 1024 * 1024
+MAX_EXPORT_BYTES = 4 * 1024 * 1024 * 1024
 MAX_JSON_DOCUMENT_BYTES = 64 * 1024 * 1024
 MAX_EXPORT_RECORD_BYTES = 16 * 1024 * 1024
-MAX_EXPORT_RECORDS = 10_000
+MAX_EXPORT_RECORDS = 100_000
 
 
 class ExportError(ValueError):
@@ -1890,7 +1890,7 @@ class RouteExportIndex:
             with self.path.open('rb') as stream:
                 stat = os.fstat(stream.fileno())
                 if stat.st_size > MAX_EXPORT_BYTES:
-                    raise ExportError('导出文件超过256MiB扫描上限。')
+                    raise ExportError('导出文件超过4GiB扫描上限。')
                 self.signature = _source_signature(stat)
                 first = b''
                 first_offset = 0
@@ -1924,7 +1924,7 @@ class RouteExportIndex:
                     data = _strict_json(raw.decode('utf-8-sig'))
                     records = data if isinstance(data, list) else [data]
                     if not records or len(records) > MAX_EXPORT_RECORDS:
-                        raise ExportError('导出路线数量必须为1至10000。')
+                        raise ExportError('导出路线数量必须为1至100000。')
                     self.format = 'json_array' if isinstance(data, list) else 'json_object'
                     self._document_records = []
                     for index, record in enumerate(records, 1):
@@ -1955,7 +1955,7 @@ class RouteExportIndex:
                             continue
                         record = _strict_json(text)
                         if len(self.entries) >= MAX_EXPORT_RECORDS:
-                            raise ExportError('导出路线数量超过10000上限。')
+                            raise ExportError('导出路线数量超过100000上限。')
                         entry = _record_metadata(record, len(self.entries) + 1, line_number)
                         entry.update(offset=offset, byte_length=len(raw), record_sha256=hashlib.sha256(raw).hexdigest())
                         self.entries.append(entry)

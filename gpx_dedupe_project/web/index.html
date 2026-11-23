@@ -1,17 +1,25 @@
 <!doctype html>
 <html lang="zh-CN" data-theme="light">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>轨迹对比 · GPX 路线</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
-<body>
-<header class="site-header"><a class="brand" href="/" aria-label="GPX 路线首页"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 28V13l10-6 12 8-11 9-1-17M7 28l11-4 11 5V15"/></svg><span>GPX <strong>路线</strong></span></a><nav aria-label="主导航"><a href="/" aria-current="page">轨迹对比</a><a href="/about">项目说明</a></nav><div class="header-right"><span class="local-tag">仅在本机处理</span><button id="theme-toggle" class="quiet" type="button" aria-label="切换深色模式">深色</button></div></header>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>全部路线 · GPX 路线</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body data-view="overview">
+<header class="site-header"><a class="brand" href="/" aria-label="GPX 路线首页"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 28V13l10-6 12 8-11 9-1-17M7 28l11-4 11 5V15"/></svg><span>GPX <strong>路线</strong></span></a><nav aria-label="主导航"><a href="#overview" id="nav-overview" aria-current="page">全部路线</a><a href="#workbench" id="nav-workbench">单条路线</a><a href="/about">项目说明</a></nav><div class="header-right"><span class="local-tag">仅在本机处理</span><button id="theme-toggle" class="quiet" type="button" aria-label="切换深色模式">深色</button></div></header>
 <main class="workspace">
 <aside class="source-panel">
 <div class="section-heading"><h1>选择一条路线</h1><span class="version">V0.1</span></div><p class="muted intro">先分析几何候选，核对后再确认转换与导出。</p>
-<form id="folder-form"><label for="folder">路线来源</label><textarea id="folder" rows="3" spellcheck="false" placeholder="每行一个文件夹、GPX 或 TopRoute JSON 路径" required></textarea><div class="folder-actions"><label class="check"><input id="recursive" type="checkbox"> 包含子文件夹</label><button id="scan" type="submit" class="button small">读取路线</button></div></form>
+<form id="folder-form"><label for="folder">路线来源</label><textarea id="folder" rows="3" spellcheck="false" placeholder="每行一个文件夹、GPX、TopRoute JSON 或 NDJSON 路径" required></textarea><div class="folder-actions"><label class="check"><input id="recursive" type="checkbox"> 包含子文件夹</label><button id="scan" type="submit" class="button small">读取路线</button></div></form>
 <div class="shortcuts"><button id="use-example" type="button">使用示例</button><button id="use-default" type="button">使用你的目录</button></div>
 <div class="list-heading"><h2>轨迹文件 <span id="file-count">0</span></h2><label class="sr-only" for="filter">搜索文件名</label><input type="search" id="filter" placeholder="搜索文件名…"></div>
 <div id="files" class="file-list" role="group" aria-label="GPX 文件列表"><p class="list-empty">正在读取文件夹…</p></div>
 <div class="run-options"><label for="work-mode">工作模式</label><select id="work-mode"><option value="classification" selected>路线类型识别（只读）</option><option value="transform">候选转换（旧版 P0）</option></select><p id="mode-note" class="muted">1 无法判断 · 2 环 · 3 非环 · 4 非标准环</p><div id="radius-options" hidden><label for="radius">匹配半径 <span>米</span></label><div class="radius-row"><input id="radius" type="number" value="18" min="1" max="100" step="1"><p id="radius-note">默认 18 米。过大可能把平行道路误判为重合。</p></div></div><button id="run" type="button" class="button run-button" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>识别路线类型</span></button><p class="muted fine">分析不导出轨迹，不修改原文件。</p></div>
 </aside>
+<section id="overview" class="overview-area" aria-label="全部路线密度总览">
+<div class="result-heading"><div><p class="muted overline">路线分布总览</p><h2>全部路线</h2><p class="muted">轨迹越密集、重叠越多，颜色越深。选择左侧路线可进入单条工作台。</p></div><button id="overview-fit" class="quiet" type="button">适应全部路线</button></div>
+<p id="overview-status" class="status" role="status" aria-live="polite">正在读取路线…</p>
+<div class="overview-toolbar"><label>原始坐标系 <select id="overview-crs"><option value="wgs84">GPS / WGS-84</option><option value="gcj02">高德 / GCJ-02</option></select></label><label>轨迹浓度 <input id="overview-opacity" type="range" min="0.03" max="0.8" step="0.01" value="0.18"></label><button id="overview-in" class="quiet" type="button" aria-label="放大总览">＋</button><button id="overview-out" class="quiet" type="button" aria-label="缩小总览">−</button></div>
+<p id="overview-tile-status" class="muted" role="status"></p>
+<canvas id="overview-map" tabindex="0" role="img" aria-label="全部路线叠加图；滚轮缩放，拖动或方向键平移，Home 复位"></canvas>
+<div class="map-footer"><span>路线叠加 · 颜色深浅表示轨迹重叠程度</span><span>鼠标位置缩放 / 拖动平移 / 双击复位 · © <a href="https://www.amap.com/" target="_blank" rel="noopener noreferrer">高德地图</a></span></div>
+</section>
 <section class="comparison-area" aria-label="轨迹处理结果">
 <div class="result-heading"><div><p class="muted overline">轨迹工作台</p><h2 id="route-title">先核对候选，再决定转换</h2><p id="route-subtitle" class="muted">选择左侧文件，再点击「仅分析候选」。</p></div><span id="result-badge" class="badge">等待分析 · 未导出</span></div>
 <div id="status" class="status" role="status" aria-live="polite">正在连接本地服务…</div>
