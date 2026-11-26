@@ -1,0 +1,71 @@
+{
+  "total": 42130,
+  "complete": true,
+  "grid_m": 5000,
+  "threshold": 10,
+  "min_low_fraction": 0.2,
+  "min_low_m": 500,
+  "index": {
+    "version": "coverage-vector-1",
+    "requested_limit": 42130,
+    "total_indexed": 42130,
+    "processed": 42130,
+    "resumed": 0,
+    "elapsed_s": 676.4798909749952,
+    "complete_source": true,
+    "grid_only": true,
+    "automatic_deletion": false
+  },
+  "thresholds": {
+    "2": {
+      "original": 173,
+      "rebuilt": 4912,
+      "hidden": 37045,
+      "fallback": 134,
+      "emptyBefore": 385,
+      "emptyAfter": 1
+    },
+    "5": {
+      "original": 217,
+      "rebuilt": 4909,
+      "hidden": 37004,
+      "fallback": 108,
+      "emptyBefore": 281,
+      "emptyAfter": 0
+    },
+    "10": {
+      "original": 470,
+      "rebuilt": 4900,
+      "hidden": 36760,
+      "fallback": 54,
+      "emptyBefore": 118,
+      "emptyAfter": 0
+    },
+    "20": {
+      "original": 1491,
+      "rebuilt": 4842,
+      "hidden": 35797,
+      "fallback": 19,
+      "emptyBefore": 29,
+      "emptyAfter": 0
+    },
+    "40": {
+      "original": 3875,
+      "rebuilt": 4717,
+      "hidden": 33538,
+      "fallback": 1,
+      "emptyBefore": 2,
+      "emptyAfter": 0
+    },
+    "80": {
+      "original": 8281,
+      "rebuilt": 4490,
+      "hidden": 29359,
+      "fallback": 0,
+      "emptyBefore": 0,
+      "emptyAfter": 0
+    }
+  },
+  "elapsed_s": 731.1392516759806,
+  "policy": "density-preference-2"
+}

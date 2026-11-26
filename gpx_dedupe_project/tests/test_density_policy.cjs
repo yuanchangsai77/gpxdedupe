@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict'),{decide}=require('../route_semantics/density_policy.js');
+const cells=new Map([['1,1',5],['2,2',100]]);
+const route={id:1,length:5000,decision:{kind:'original'},contributions:[[5000,1,1,1000],[5000,2,2,4000]]};
+assert.equal(decide(route,cells,10).keep,true);
+assert.equal(decide(route,cells,4).keep,false);
+assert.equal(decide(route,cells,10,.5).keep,false);
+assert.equal(decide({...route,decision:{kind:'rebuilt'},rebuilt:[[[1,1],[2,2]]]},cells,0).keep,true);
+assert.equal(decide({...route,decision:{kind:'none'}},cells,1000).keep,false);
+assert.equal(decide({...route,contributions:[[5000,1,1,100],[5000,2,2,100]]},cells,10).keep,false);
+assert.equal(decide({...route,contributions:[[5000,1,1,200]]},cells,10).keep,true);
+assert.equal(decide({...route,decision:{kind:'rebuilt'},rebuilt:[[[1,1],[2,2]]]},cells,10).kind,'original');
+const {select}=require('../route_semantics/density_policy.js');
+const rescued=select([route],cells,0);assert.equal(rescued.fallback,1);assert.equal(rescued.original,1);
+console.log('PASS density policy: threshold boundaries, cross-region share, short routes, mandatory rebuilt, review exclusion');

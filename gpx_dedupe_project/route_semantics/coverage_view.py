@@ -63,9 +63,30 @@ def export(source, coverage, output):
                     "novel": novel,
                     "sparse": sparse,
                 }
+        density_table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='density_decisions'"
+        ).fetchone()
+        if density_table:
+            for rid, kind, selected, low, fraction, reason in db.execute(
+                "SELECT * FROM density_decisions"
+            ):
+                decisions[rid] = {
+                    "kind": kind,
+                    "selected": bool(selected),
+                    "reason": reason,
+                    "novel": 0,
+                    "sparse": low,
+                }
+
+        def display_parts(blob):
+            return [
+                [[round(p[0], 5), round(p[1], 5)] for p in part]
+                for part in (unpack(blob) or [])
+            ]
+
         for rid, length in db.execute("SELECT id,length_m FROM routes ORDER BY id"):
             row = store.db.execute(
-                "SELECT coalesce(display,parts),coalesce(rebuilt_display,rebuilt) FROM routes WHERE id=?",
+                "SELECT coalesce(display,parts),coalesce(rebuilt_display,rebuilt),state FROM routes WHERE id=?",
                 (rid,),
             ).fetchone()
             contributions = list(
@@ -85,14 +106,17 @@ def export(source, coverage, output):
                 },
             )
             rebuilt = (
-                unpack(row[1]) if decision["kind"] == "rebuilt" and row[1] else None
+                display_parts(row[1])
+                if row[2] == "candidate" and row[1]
+                else None
             )
             routes.append(
                 {
                     "id": rid,
                     "length": length,
-                    "parts": unpack(row[0]),
+                    "parts": display_parts(row[0]),
                     "rebuilt": rebuilt,
+                    "reliableRebuilt": row[2] == "candidate" and bool(row[1]),
                     "decision": decision,
                     "contributions": contributions,
                 }
@@ -107,14 +131,19 @@ def export(source, coverage, output):
             if line.startswith("function gcj(")
         )
         payload = json.dumps(
-            {"cells": cells, "routes": routes},
+            {"cells": cells, "routes": routes, "complete": bool(density_table)},
             ensure_ascii=False,
             separators=(",", ":"),
         ).replace("<", "\u003c")
         destination = Path(output)
         temporary = destination.with_suffix(".tmp.html")
         temporary.write_text(
-            template.replace("__DATA__", payload).replace("__GCJ__", gcj),
+            template.replace("__DATA__", payload)
+            .replace("__GCJ__", gcj)
+            .replace(
+                "__DENSITY_POLICY__",
+                Path(__file__).with_name("density_policy.js").read_text(),
+            ),
             encoding="utf8",
         )
         temporary.replace(destination)
