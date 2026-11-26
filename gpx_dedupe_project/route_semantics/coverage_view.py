@@ -10,7 +10,7 @@ from .city_store import CityStore, unpack
 from .coverage import COS_STANDARD, RADIUS
 
 
-def export(source, coverage, output):
+def export(source, coverage, output, dedup=None):
     db = sqlite3.connect(f"file:{Path(coverage).resolve()}?mode=ro", uri=True)
     store = CityStore(source, initialize=False)
     try:
@@ -78,6 +78,38 @@ def export(source, coverage, output):
                     "sparse": low,
                 }
 
+        dedup_members = {}
+        if dedup:
+            with sqlite3.connect(
+                f"file:{Path(dedup).resolve()}?mode=ro", uri=True
+            ) as dedup_db:
+                run = dedup_db.execute(
+                    "SELECT id,report FROM runs ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if not run:
+                    raise ValueError("no completed dedup run")
+                from .rebuilt_dedup import source_snapshot
+
+                selected_ids = {
+                    rid
+                    for rid, decision in decisions.items()
+                    if decision["selected"] and decision["kind"] == "rebuilt"
+                }
+                report = json.loads(run[1])
+                if report.get("source_snapshot") != source_snapshot(
+                    store, selected_ids
+                ):
+                    raise ValueError("dedup result stale: rerun dedup before export")
+                for rid, canonical, group, rank in dedup_db.execute(
+                    "SELECT route_id,canonical_id,group_id,rank FROM members WHERE run_id=?",
+                    (run[0],),
+                ):
+                    dedup_members[rid] = {
+                        "canonical": canonical,
+                        "group": group,
+                        "rank": rank,
+                    }
+
         def display_parts(blob):
             return [
                 [[round(p[0], 5), round(p[1], 5)] for p in part]
@@ -106,9 +138,7 @@ def export(source, coverage, output):
                 },
             )
             rebuilt = (
-                display_parts(row[1])
-                if row[2] == "candidate" and row[1]
-                else None
+                display_parts(row[1]) if row[2] == "candidate" and row[1] else None
             )
             routes.append(
                 {
@@ -119,6 +149,7 @@ def export(source, coverage, output):
                     "reliableRebuilt": row[2] == "candidate" and bool(row[1]),
                     "decision": decision,
                     "contributions": contributions,
+                    "dedup": dedup_members.get(rid),
                 }
             )
         template = Path(__file__).with_name("coverage_view.html").read_text()
@@ -131,7 +162,11 @@ def export(source, coverage, output):
             if line.startswith("function gcj(")
         )
         payload = json.dumps(
-            {"cells": cells, "routes": routes, "complete": bool(density_table)},
+            {
+                "cells": cells,
+                "routes": routes,
+                "complete": bool(density_table),
+            },
             ensure_ascii=False,
             separators=(",", ":"),
         ).replace("<", "\u003c")
@@ -140,6 +175,10 @@ def export(source, coverage, output):
         temporary.write_text(
             template.replace("__DATA__", payload)
             .replace("__GCJ__", gcj)
+            .replace(
+                "__REBUILT_DEDUP__",
+                Path(__file__).with_name("rebuilt_dedup.js").read_text(),
+            )
             .replace(
                 "__DENSITY_POLICY__",
                 Path(__file__).with_name("density_policy.js").read_text(),
@@ -158,5 +197,8 @@ if __name__ == "__main__":
     p.add_argument("--source", required=True)
     p.add_argument("--coverage", required=True)
     p.add_argument("--output", required=True)
+    p.add_argument("--dedup")
     a = p.parse_args()
-    print(json.dumps(export(a.source, a.coverage, a.output), ensure_ascii=False))
+    print(
+        json.dumps(export(a.source, a.coverage, a.output, a.dedup), ensure_ascii=False)
+    )

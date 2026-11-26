@@ -1,0 +1,35 @@
+{
+  "version": "rebuilt-equivalence-1",
+  "input_routes": 4900,
+  "scope": "selected_rebuilt_only",
+  "numeric_routes": 4900,
+  "candidate_buckets": 4878,
+  "pair_checks": 25,
+  "duplicate_routes": 1,
+  "representative_routes": 4899,
+  "duplicate_groups": 1,
+  "skipped": {},
+  "limits": {
+    "max_length_difference_m": 30,
+    "max_relative_length_difference": 0.01,
+    "max_endpoint_m": 15,
+    "max_corridor_m": 8,
+    "max_p95_m": 3
+  },
+  "snapshot": "b5a304b2dbf8d0a16a1fe4a0d504ab7b60f46530076e6b24ecceb9dfbb3c23b4",
+  "source_snapshot": "4aa2186954927be081ccfedaebab87ed220a328e4327c822cd6826cb587c1555",
+  "retained_candidate_pairs": 24,
+  "elapsed_s": 11.076668094028719,
+  "calibrated": false,
+  "raw_routes_untouched": true,
+  "display": {
+    "original": 470,
+    "rebuilt": 4899,
+    "hidden": 36761,
+    "fallback": 54,
+    "emptyBefore": 118,
+    "emptyAfter": 0,
+    "merged": 1,
+    "dedupCoverageProtected": 0
+  }
+}
