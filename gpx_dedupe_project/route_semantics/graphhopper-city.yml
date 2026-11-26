@@ -1,0 +1,25 @@
+# GraphHopper 11.0, isolated Chengdu foot experiment. Bind host port to 127.0.0.1.
+graphhopper:
+  datareader.file: /experiment/chengdu.osm
+  graph.location: /experiment/graph-cache
+  profiles:
+    - name: foot
+      custom_model_files: [foot.json]
+  profiles_ch:
+    - profile: foot
+  profiles_lm: []
+  graph.encoded_values: foot_access,foot_priority,foot_average_speed,foot_road_access,hike_rating,mtb_rating,country,road_class,osm_way_id
+  import.osm.ignored_highways: motorway,trunk
+  prepare.min_network_size: 0
+  routing.max_visited_nodes: 100000
+  routing.timeout_ms: 20000
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: 0.0.0.0
+  admin_connectors: []
+logging:
+  level: INFO
+  appenders:
+    - type: console

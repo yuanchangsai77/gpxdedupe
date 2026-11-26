@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict');
+const motion=require('../route_semantics/route_motion.js');
+const project=p=>[p[0]*Math.PI/180,Math.log(Math.tan(Math.PI/4+p[1]*Math.PI/360))];
+const track=motion.build([[0,0],[0,0],[.001,0],[0,0]].map(coordinate=>({coordinate,kind:'observed'})),project);
+assert.equal(track.points.length,3);assert.ok(track.total>220&&track.total<223);
+const outward=motion.at(track,.25),returning=motion.at(track,.75);
+assert.ok(Math.abs(outward.point[0]-returning.point[0])<1e-12);
+assert.ok(outward.delta[0]>0&&returning.delta[0]<0);
+assert.equal(motion.visits(track,outward),1);assert.equal(motion.visits(track,returning),2);
+assert.ok(motion.tail(track,returning,20).length>=2);
+assert.equal(motion.at(track,2).distance,track.total);
+assert.equal(motion.at(track,-1).distance,0);
+assert.equal(motion.at(motion.build([],project),.5),null);
+const facility=motion.build([[0,0],[.001,0],[0,0],[.001,0],[0,0]].map(coordinate=>({coordinate,kind:'raw_trace'})),project);
+assert.equal(facility.points.length,5);assert.equal(motion.visits(facility,motion.at(facility,.875)),4);
+assert.equal(motion.at(facility,.5).kind,'raw_trace');
+console.log('PASS: out-and-back same-position opposite direction, distinct visit counts, repeated laps retained, zero edges and progress bounds');

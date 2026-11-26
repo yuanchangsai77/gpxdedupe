@@ -1,0 +1,18 @@
+{
+  "before": {
+    "seconds": 24.625536150007974,
+    "routes": 6470,
+    "png_bytes": 60230
+  },
+  "after": {
+    "seconds": 8.988316980976379,
+    "routes": 6469,
+    "png_bytes": 60230
+  },
+  "basis": "One real cold render per implementation, same spatial tile, concurrent archive job; browser PNG cache bypassed. Not end-to-end page latency.",
+  "after_linux_cache": {
+    "seconds": 0.9498987400147598,
+    "routes": 6470,
+    "png_bytes": 60230
+  }
+}
