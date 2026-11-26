@@ -1,6 +1,7 @@
 """Self contained original-trace coverage viewer export."""
 
 import argparse
+import html
 import json
 import math
 import sqlite3
@@ -10,7 +11,7 @@ from .city_store import CityStore, unpack
 from .coverage import COS_STANDARD, RADIUS
 
 
-def export(source, coverage, output, dedup=None):
+def export(source, coverage, output, dedup=None, region="成都", initial_policy=None):
     db = sqlite3.connect(f"file:{Path(coverage).resolve()}?mode=ro", uri=True)
     store = CityStore(source, initialize=False)
     try:
@@ -152,6 +153,16 @@ def export(source, coverage, output, dedup=None):
                     "dedup": dedup_members.get(rid),
                 }
             )
+        if initial_policy is None:
+            metadata = db.execute(
+                "SELECT value FROM metadata WHERE key='density_report'"
+            ).fetchone()
+            report = json.loads(metadata[0]) if metadata else {}
+            initial_policy = {
+                "threshold": report.get("threshold", 10),
+                "fraction": report.get("min_low_fraction", 0.2),
+                "minimum": report.get("min_low_m", 500),
+            }
         template = Path(__file__).with_name("coverage_view.html").read_text()
         gcj = next(
             line
@@ -166,6 +177,8 @@ def export(source, coverage, output, dedup=None):
                 "cells": cells,
                 "routes": routes,
                 "complete": bool(density_table),
+                "region": region,
+                "initialPolicy": initial_policy,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -174,6 +187,7 @@ def export(source, coverage, output, dedup=None):
         temporary = destination.with_suffix(".tmp.html")
         temporary.write_text(
             template.replace("__DATA__", payload)
+            .replace("__REGION_TITLE__", html.escape(region))
             .replace("__GCJ__", gcj)
             .replace(
                 "__REBUILT_DEDUP__",

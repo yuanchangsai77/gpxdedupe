@@ -11,4 +11,7 @@ assert.equal(decide({...route,contributions:[[5000,1,1,200]]},cells,10).keep,tru
 assert.equal(decide({...route,decision:{kind:'rebuilt'},rebuilt:[[[1,1],[2,2]]]},cells,10).kind,'original');
 const {select}=require('../route_semantics/density_policy.js');
 const rescued=select([route],cells,0);assert.equal(rescued.fallback,1);assert.equal(rescued.original,1);
-console.log('PASS density policy: threshold boundaries, cross-region share, short routes, mandatory rebuilt, review exclusion');
+assert.equal(decide(route,cells,10,.2,1500).keep,false);
+assert.throws(()=>decide(route,cells,10,2,500));
+assert.throws(()=>decide(route,cells,10,.2,0));
+console.log('PASS density policy: threshold boundaries, cross-region share, short routes, high-density rebuilt and low-density original, review exclusion');
