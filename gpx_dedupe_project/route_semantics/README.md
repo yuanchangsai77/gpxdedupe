@@ -2,9 +2,9 @@
 
 主流程已整理在 **[成都历史路线筛选流程](WORKFLOW.md)**：全量原始与路线定义库 → 全量密度统计及可靠重建结果 → 低密度原始/高密度重建优先 → 高密度空格补充 → 默认展示集合。原始轨迹不覆盖，重建失败不使用原始 GPS 或人工直线补接，不发布导航路线。严格去重仅为可关闭的附加实验，暂不继续扩展。
 
-当前密度主流程默认5370条（4900重建＋470原始），开启严格去重实验后5369条。详细条件、实测耗时与局限统一见流程说明。
+当前密度基线5370条（4900重建＋470原始），最终默认独有覆盖筛选后3275条（2805重建＋470原始）。详细条件、实测耗时与局限统一见流程说明。
 
-对外材料：[方案介绍](方案介绍.md)用于页面演示后的讲解；[交付与运行说明](DELIVERY.md)用于接收方运行。`python -m route_semantics.delivery` 提供密度到GeoJSON的最终入口，默认不启用去重；`package_delivery` 构建不含真实数据的源码包。
+对外材料：[方案介绍](方案介绍.md)用于页面演示后的讲解；[交付与运行说明](DELIVERY.md)用于接收方运行。`python -m route_semantics.delivery` 提供密度到GeoJSON的最终入口，默认启用compact/50%独有覆盖筛选；`package_delivery` 构建不含真实数据的源码包。
 
 ## 展示入口
 
@@ -90,3 +90,7 @@ python3 -m route_semantics.city_rebuild --database outputs/chengdu-city/city.sql
 保留流水线、地图、稀疏选点、端点回退、失败诊断和动线测试。浏览器入口为 `tests/browser_city_pipeline.cjs`、`tests/browser_sample_gallery.cjs`，截图写入已忽略的 `outputs/chengdu-city/validation/`，不调用付费路径规划。
 
 提交前审查还覆盖了非对象数据行继续导入、密集观测的按需重绘、三维坐标的二维数值校验、归档与重建共用独占锁，以及路网/算法/任务变化后的图层缓存失效。未为这些修复重新运行全量，最终报告仍对应保留的基线实验。
+
+新增可选 [高密度重建独有覆盖筛选](OVERLAP.md)：仅对重建表达分析独有物理路段及环线保护，原始路线不动。页面默认热门精简50%比例硬门槛，可比较5%～90%并切换旧的覆盖优先模式；delivery在独立输出库保存最终决定，CSV、GeoJSON及页面使用相同规则；源库只读。
+
+最终入选路线展示：正式导出自动生成 `final-routes.html`，只内嵌 `routes.geojson` 中的最终路线，保留完整几何及分段，不加载全部历史库或重算筛选。支持原始/重建切换、点击或按编号选线、起终点、鼠标位置缩放及拖动。密度页提供入口；独立生成可运行 `python -m route_semantics.final_view --geojson 输出目录/routes.geojson --output 输出目录/final-routes.html --region 成都`。

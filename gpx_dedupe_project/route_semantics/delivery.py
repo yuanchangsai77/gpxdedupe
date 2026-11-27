@@ -20,8 +20,9 @@ from pathlib import Path
 from .city_store import CityStore, unpack
 from .coverage_view import export
 from .density_batch import run as index_density
+from .overlap_index import run as index_overlap
 
-VERSION = "route-density-delivery-1"
+VERSION = "route-density-delivery-2"
 
 
 def apply_policy(database, policy):
@@ -64,7 +65,20 @@ def apply_policy(database, policy):
             thresholds=policy["thresholds"],
             complete=True,
         )
+        report["overlap"] = policy.get("overlap", {"enabled": False, "mode": "off"})
         with db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS overlap_metrics(route_id INTEGER PRIMARY KEY,payload TEXT)"
+            )
+            db.execute("DELETE FROM overlap_metrics")
+            db.executemany(
+                "INSERT INTO overlap_metrics VALUES(?,?)",
+                [
+                    (r["id"], json.dumps(r["coverage"], ensure_ascii=False))
+                    for r in records
+                    if r.get("coverage")
+                ],
+            )
             db.execute("DELETE FROM density_decisions")
             db.executemany(
                 "INSERT INTO density_decisions VALUES(?,?,?,?,?,?)",
@@ -165,6 +179,49 @@ def write_run_state(root, state, **details):
     temporary.replace(root / "run-state.json")
 
 
+def reusable_density_report(source, coverage):
+    if not coverage.is_file():
+        return None
+    try:
+        with sqlite3.connect(f"file:{coverage.resolve()}?mode=ro", uri=True) as db:
+            meta = {
+                k: json.loads(v)
+                for k, v in db.execute(
+                    "SELECT key,value FROM metadata WHERE key IN ('config','coverage_ready','last_run','density_report')"
+                )
+            }
+            cfg = meta.get("config", {})
+            if (
+                cfg.get("version") != "coverage-vector-1"
+                or cfg.get("source") != str(source)
+                or cfg.get("sizes") != [5000]
+                or cfg.get("step") != 20
+                or cfg.get("max_gap") != 1000
+            ):
+                return None
+            if not meta.get("coverage_ready") or not meta.get("last_run", {}).get(
+                "complete_source"
+            ):
+                return None
+            db.execute(
+                "ATTACH DATABASE ? AS evidence", ("file:" + str(source) + "?mode=ro",)
+            )
+            count = db.execute("SELECT count(*) FROM evidence.routes").fetchone()[0]
+            if (
+                db.execute("SELECT count(*) FROM routes").fetchone()[0] != count
+                or db.execute("SELECT count(*) FROM density_decisions").fetchone()[0]
+                != count
+            ):
+                return None
+            if db.execute(
+                "SELECT 1 FROM routes r LEFT JOIN evidence.routes e ON r.id=e.id WHERE r.sha IS NOT e.content_sha256 LIMIT 1"
+            ).fetchone():
+                return None
+            return meta.get("density_report")
+    except (sqlite3.Error, ValueError, KeyError):
+        return None
+
+
 def select(
     database,
     output_dir,
@@ -173,6 +230,8 @@ def select(
     fraction=0.2,
     minimum=500,
     node="node",
+    overlap_mode="compact",
+    overlap_fraction=0.5,
 ):
     if (
         not math.isfinite(threshold)
@@ -181,6 +240,9 @@ def select(
         or not 0 <= fraction <= 1
         or not math.isfinite(minimum)
         or minimum <= 0
+        or overlap_mode not in ("off", "compact", "coverage")
+        or not math.isfinite(overlap_fraction)
+        or not 0 <= overlap_fraction <= 1
     ):
         raise ValueError("invalid policy limits")
     database = Path(database).resolve()
@@ -200,17 +262,29 @@ def select(
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         write_run_state(root, "running", source_database=str(database))
         try:
-            index_density(database, coverage)
+            cached = reusable_density_report(database, coverage)
+            if cached is None:
+                index_density(database, coverage)
+            overlap_path = None
+            if overlap_mode != "off":
+                overlap_path = root / "overlap-index.json"
+                index_overlap(database, overlap_path)
             preview = root / "preview.next.html"
+            policy_input = root / "policy-input.json"
             export(
                 database,
                 coverage,
                 preview,
                 region=region,
+                overlap=overlap_path,
+                policy_output=policy_input,
                 initial_policy={
                     "threshold": threshold,
                     "fraction": fraction,
                     "minimum": minimum,
+                    "overlapMode": overlap_mode,
+                    "overlapFraction": overlap_fraction,
+                    "overlapEnabled": overlap_mode != "off",
                 },
             )
             policy_file = root / "policy.json"
@@ -218,7 +292,7 @@ def select(
                 [
                     node,
                     str(Path(__file__).with_name("density_refresh.cjs")),
-                    str(preview),
+                    str(policy_input),
                     str(policy_file),
                     "--threshold",
                     str(threshold),
@@ -226,6 +300,10 @@ def select(
                     str(fraction),
                     "--minimum-meters",
                     str(minimum),
+                    "--overlap-mode",
+                    overlap_mode,
+                    "--overlap-fraction",
+                    str(overlap_fraction),
                 ],
                 check=True,
             )
@@ -244,6 +322,11 @@ def select(
                         "low_length_m",
                         "low_fraction",
                         "reason",
+                        "unique_fraction",
+                        "unique_m",
+                        "longest_unique_m",
+                        "protected_reason",
+                        "covered_by",
                     ]
                 )
                 writer.writerows(
@@ -254,6 +337,11 @@ def select(
                         r["lowLength"],
                         r["fraction"],
                         r["reason"],
+                        (r.get("coverage") or {}).get("unique_fraction", ""),
+                        (r.get("coverage") or {}).get("unique_m", ""),
+                        (r.get("coverage") or {}).get("longest_unique_m", ""),
+                        (r.get("coverage") or {}).get("protected_reason", ""),
+                        json.dumps((r.get("coverage") or {}).get("covered_by", [])),
                     )
                     for r in rows
                 )
@@ -272,6 +360,11 @@ def select(
                             + "\n"
                         )
             geometry_count = export_geometries(database, rows, root / "routes.geojson")
+            from .final_view import export as export_final_view
+
+            export_final_view(
+                root / "routes.geojson", root / "final-routes.html", region
+            )
             # Index page uses same final rule dynamically; all reliable geometries are available.
             preview.replace(root / "index.html")
             report.update(
@@ -280,6 +373,7 @@ def select(
                 delivery_elapsed_s=time.monotonic() - began,
                 source_database=str(database),
                 source_mode="read_only",
+                density_cache_reused=cached is not None,
                 dedup_enabled=False,
                 exported_routes=geometry_count,
                 artifacts=[
@@ -289,6 +383,7 @@ def select(
                     "decisions.csv",
                     "selected_routes.ndjson",
                     "routes.geojson",
+                    "final-routes.html",
                     "index.html",
                 ],
             )
@@ -313,6 +408,10 @@ def main():
     p.add_argument("--low-fraction", type=float, default=0.2)
     p.add_argument("--minimum-meters", type=float, default=500)
     p.add_argument("--node", default="node")
+    p.add_argument(
+        "--overlap-mode", choices=["compact", "coverage", "off"], default="compact"
+    )
+    p.add_argument("--overlap-fraction", type=float, default=0.5)
     a = p.parse_args()
     os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
     resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
@@ -326,6 +425,8 @@ def main():
                 a.low_fraction,
                 a.minimum_meters,
                 a.node,
+                a.overlap_mode,
+                a.overlap_fraction,
             ),
             ensure_ascii=False,
         )

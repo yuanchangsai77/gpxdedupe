@@ -11,7 +11,16 @@ from .city_store import CityStore, unpack
 from .coverage import COS_STANDARD, RADIUS
 
 
-def export(source, coverage, output, dedup=None, region="成都", initial_policy=None):
+def export(
+    source,
+    coverage,
+    output,
+    dedup=None,
+    region="成都",
+    initial_policy=None,
+    overlap=None,
+    policy_output=None,
+):
     db = sqlite3.connect(f"file:{Path(coverage).resolve()}?mode=ro", uri=True)
     store = CityStore(source, initialize=False)
     try:
@@ -32,6 +41,7 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
             ]
             cells.append([size, x, y, count, length, ring])
         routes = []
+        policy_routes = []
         has_decisions = db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='decisions'"
         ).fetchone()
@@ -111,15 +121,15 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
                         "rank": rank,
                     }
 
-        def display_parts(blob):
+        def display_parts(blob, precision=5):
             return [
-                [[round(p[0], 5), round(p[1], 5)] for p in part]
+                [[round(p[0], precision), round(p[1], precision)] for p in part]
                 for part in (unpack(blob) or [])
             ]
 
         for rid, length in db.execute("SELECT id,length_m FROM routes ORDER BY id"):
             row = store.db.execute(
-                "SELECT coalesce(display,parts),coalesce(rebuilt_display,rebuilt),state FROM routes WHERE id=?",
+                "SELECT coalesce(display,parts),rebuilt,state FROM routes WHERE id=?",
                 (rid,),
             ).fetchone()
             contributions = list(
@@ -139,7 +149,9 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
                 },
             )
             rebuilt = (
-                display_parts(row[1]) if row[2] == "candidate" and row[1] else None
+                display_parts(row[1], precision=6)
+                if row[2] == "candidate" and row[1]
+                else None
             )
             routes.append(
                 {
@@ -153,6 +165,16 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
                     "dedup": dedup_members.get(rid),
                 }
             )
+            policy_routes.append(
+                {
+                    "id": rid,
+                    "length": length,
+                    "rebuilt": [[]] if rebuilt else None,
+                    "reliableRebuilt": row[2] == "candidate" and bool(row[1]),
+                    "decision": dict(decision),
+                    "contributions": [c for c in contributions if c[0] == 5000],
+                }
+            )
         if initial_policy is None:
             metadata = db.execute(
                 "SELECT value FROM metadata WHERE key='density_report'"
@@ -163,6 +185,19 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
                 "fraction": report.get("min_low_fraction", 0.2),
                 "minimum": report.get("min_low_m", 500),
             }
+        overlap_data = None
+        if overlap:
+            from .rebuilt_dedup import source_snapshot
+
+            overlap_data = json.loads(Path(overlap).read_text())
+            if overlap_data.get("source_snapshot") != source_snapshot(
+                store, set(overlap_data["route_ids"])
+            ):
+                raise ValueError("overlap index stale: rerun overlap_index")
+        initial_policy = dict(initial_policy)
+        initial_policy.setdefault("overlapMode", "compact")
+        initial_policy.setdefault("overlapFraction", 0.5)
+        initial_policy.setdefault("overlapEnabled", bool(overlap_data))
         template = Path(__file__).with_name("coverage_view.html").read_text()
         gcj = next(
             line
@@ -172,33 +207,56 @@ def export(source, coverage, output, dedup=None, region="成都", initial_policy
             .splitlines()
             if line.startswith("function gcj(")
         )
-        payload = json.dumps(
-            {
-                "cells": cells,
-                "routes": routes,
-                "complete": bool(density_table),
-                "region": region,
+        payload = {
+            "cells": cells,
+            "routes": routes,
+            "complete": bool(density_table),
+            "region": region,
+            "initialPolicy": initial_policy,
+            "overlap": overlap_data,
+        }
+        if policy_output:
+            policy_path = Path(policy_output)
+            if policy_path.resolve() in {
+                Path(source).resolve(),
+                Path(coverage).resolve(),
+                Path(output).resolve(),
+            }:
+                raise ValueError("policy output must differ from inputs and view")
+            compact = {
+                "cells": [c[:5] for c in cells if c[0] == 5000],
+                "routes": policy_routes,
+                "overlap": overlap_data,
                 "initialPolicy": initial_policy,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).replace("<", "\u003c")
+            }
+            policy_path.write_text(
+                json.dumps(
+                    compact, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                )
+            )
         destination = Path(output)
         temporary = destination.with_suffix(".tmp.html")
-        temporary.write_text(
-            template.replace("__DATA__", payload)
-            .replace("__REGION_TITLE__", html.escape(region))
-            .replace("__GCJ__", gcj)
-            .replace(
-                "__REBUILT_DEDUP__",
-                Path(__file__).with_name("rebuilt_dedup.js").read_text(),
-            )
-            .replace(
-                "__DENSITY_POLICY__",
-                Path(__file__).with_name("density_policy.js").read_text(),
-            ),
-            encoding="utf8",
+        template = template.replace("__REGION_TITLE__", html.escape(region)).replace(
+            "__GCJ__", gcj
         )
+        for marker, filename in (
+            ("__FINAL_POLICY__", "final_policy.js"),
+            ("__OVERLAP_POLICY__", "overlap_policy.js"),
+            ("__REBUILT_DEDUP__", "rebuilt_dedup.js"),
+            ("__DENSITY_POLICY__", "density_policy.js"),
+        ):
+            template = template.replace(
+                marker, Path(__file__).with_name(filename).read_text()
+            )
+        before, after = template.split("__DATA__")
+        encoder = json.JSONEncoder(
+            ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
+        with temporary.open("w", encoding="utf8") as stream:
+            stream.write(before)
+            for chunk in encoder.iterencode(payload):
+                stream.write(chunk.replace("<", "\\u003c"))
+            stream.write(after)
         temporary.replace(destination)
         return {"routes": len(routes), "cells": len(cells), "output": str(output)}
     finally:
@@ -212,7 +270,11 @@ if __name__ == "__main__":
     p.add_argument("--coverage", required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--dedup")
+    p.add_argument("--overlap")
     a = p.parse_args()
     print(
-        json.dumps(export(a.source, a.coverage, a.output, a.dedup), ensure_ascii=False)
+        json.dumps(
+            export(a.source, a.coverage, a.output, a.dedup, overlap=a.overlap),
+            ensure_ascii=False,
+        )
     )

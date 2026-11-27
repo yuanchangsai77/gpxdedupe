@@ -6,7 +6,7 @@ import json
 import zipfile
 from pathlib import Path
 
-VERSION = "route-density-delivery-1"
+VERSION = "route-density-delivery-2"
 MODULE_FILES = [
     "COVERAGE.md",
     "DEDUP.md",
@@ -14,6 +14,7 @@ MODULE_FILES = [
     "DELIVERY_VALIDATION.md",
     "README.md",
     "WORKFLOW.md",
+    "OVERLAP.md",
     "__init__.py",
     "adapters.py",
     "build_gallery.py",
@@ -36,6 +37,9 @@ MODULE_FILES = [
     "delivery.py",
     "density_batch.py",
     "density_policy.js",
+    "final_policy.js",
+    "final_view.py",
+    "final_view.html",
     "density_refresh.cjs",
     "endpoint_recovery.py",
     "examples/synthetic.ndjson",
@@ -45,11 +49,15 @@ MODULE_FILES = [
     "geometry.py",
     "graphhopper-city.yml",
     "package_delivery.py",
+    "overlap_index.py",
+    "overlap_policy.js",
+    "overlap_report.cjs",
     "rebuilt_dedup.js",
     "rebuilt_dedup.py",
     "requirements.lock.txt",
     "requirements.txt",
     "results/chengdu-density-delivery.json",
+    "results/chengdu-road-overlap.json",
     "route_motion.js",
     "sparse_routing.py",
     "方案介绍.md",
@@ -64,13 +72,19 @@ TESTS = [
     "test_coverage.py",
     "test_coverage_selection.py",
     "test_coverage_fast.py",
+    "test_coverage_view.py",
+    "test_overlap_index.py",
+    "test_overlap_policy.cjs",
     "test_rebuilt_dedup.py",
     "test_delivery.py",
     "test_package_delivery.py",
     "test_density_policy.cjs",
+    "test_final_policy.cjs",
     "test_rebuilt_dedup.cjs",
     "test_route_motion.cjs",
     "browser_delivery.cjs",
+    "browser_coverage.cjs",
+    "browser_final.cjs",
 ]
 README = """# 历史路线密度筛选算法包
 
@@ -106,7 +120,10 @@ def build(output):
         path = root / relative
         if path.is_symlink() or not path.resolve().is_relative_to(root):
             raise ValueError("refuse symlinks or out-of-root files in delivery")
-        return path.read_bytes()
+        data = path.read_bytes()
+        if b"E-SafeNet" in data[:64] or b"\x00" in data[:64]:
+            raise ValueError("source file is encrypted or binary: " + relative)
+        return data
 
     payload = {
         "route_semantics/" + name: read_checked("route_semantics/" + name)
